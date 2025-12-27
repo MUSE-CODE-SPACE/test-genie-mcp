@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.MUSE-CODE-SPACE/test-genie",
+  "description": "AI-powered app test automation for iOS, Android, Flutter, React Native, Web",
+  "repository": {
+    "url": "https://github.com/MUSE-CODE-SPACE/test-genie-mcp",
+    "source": "github"
+  },
+  "version": "2.0.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "test-genie-mcp",
+      "version": "2.0.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

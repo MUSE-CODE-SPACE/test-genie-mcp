@@ -6,3 +6,4 @@ dist/
 .test-genie/
 coverage/
 *.tgz
+.mcpregistry_*
