@@ -30,10 +30,22 @@ Test Genie MCP is an AI-powered MCP server for automated app testing. It provide
 | React Native | TypeScript, JavaScript | Jest, Detox, RNTL |
 | Web | TypeScript, JavaScript | Playwright, Cypress, Lighthouse |
 
-#### 18 MCP Tools
+#### 19 MCP Tools
+
+| Category | Tools |
+|----------|-------|
+| **Analysis** | `analyze_app_structure`, `analyze_code_deep`, `analyze_performance` |
+| **Scenario** | `generate_scenarios`, `create_test_plan` |
+| **Execution** | `run_scenario_test`, `run_simulation`, `run_stress_test` |
+| **Detection** | `detect_memory_leaks`, `detect_logic_errors` |
+| **Fixing** | `suggest_fixes`, `confirm_fix`, `apply_fix`, `rollback_fix` |
+| **Automation** | `run_full_automation`, `generate_report`, `generate_cicd_config` |
+| **Management** | `get_pending_fixes`, `get_test_history` |
 
 **Analysis & Scenario Generation**
 - `analyze_app_structure` - Analyze codebase structure (screens, components, APIs, state)
+- `analyze_code_deep` - AST-based code analysis (complexity, hooks, dependencies)
+- `analyze_performance` - Deep performance analysis (rendering, computation, network, bundle)
 - `generate_scenarios` - AI-powered test scenario generation
 - `create_test_plan` - Create test plans and schedules
 
@@ -52,14 +64,14 @@ Test Genie MCP is an AI-powered MCP server for automated app testing. It provide
 - `apply_fix` - Apply confirmed fixes
 - `rollback_fix` - Rollback applied fixes
 
-**Full Automation**
+**Automation & CI/CD**
 - `run_full_automation` - Run complete pipeline automatically
 - `generate_report` - Generate detailed reports (Markdown, HTML, JSON)
-
-**Advanced Analysis (v2.0)**
-- `analyze_performance` - Deep performance analysis (rendering, computation, network, bundle)
-- `analyze_code_deep` - AST-based code analysis (complexity, hooks, dependencies)
 - `generate_cicd_config` - Generate CI/CD configs (GitHub Actions, Jenkins, GitLab CI)
+
+**Management**
+- `get_pending_fixes` - Get list of pending fix suggestions
+- `get_test_history` - Get test execution history
 
 ### Installation
 
@@ -165,10 +177,22 @@ Test Genie MCP는 AI 기반 앱 테스트 자동화 MCP 서버입니다. 시나�
 | React Native | TypeScript, JavaScript | Jest, Detox, RNTL |
 | Web | TypeScript, JavaScript | Playwright, Cypress, Lighthouse |
 
-#### 18개 MCP 도구
+#### 19개 MCP 도구
+
+| 카테고리 | 도구 |
+|----------|------|
+| **분석** | `analyze_app_structure`, `analyze_code_deep`, `analyze_performance` |
+| **시나리오** | `generate_scenarios`, `create_test_plan` |
+| **실행** | `run_scenario_test`, `run_simulation`, `run_stress_test` |
+| **탐지** | `detect_memory_leaks`, `detect_logic_errors` |
+| **수정** | `suggest_fixes`, `confirm_fix`, `apply_fix`, `rollback_fix` |
+| **자동화** | `run_full_automation`, `generate_report`, `generate_cicd_config` |
+| **관리** | `get_pending_fixes`, `get_test_history` |
 
 **분석 & 시나리오 생성**
 - `analyze_app_structure` - 앱 코드베이스 분석 (화면, 컴포넌트, API, 상태관리)
+- `analyze_code_deep` - AST 기반 코드 분석 (복잡도, 훅, 의존성)
+- `analyze_performance` - 성능 심층 분석 (렌더링, 연산, 네트워크, 번들)
 - `generate_scenarios` - AI 기반 테스트 시나리오 자동 생성
 - `create_test_plan` - 테스트 계획 수립 및 스케줄링
 
@@ -187,14 +211,14 @@ Test Genie MCP는 AI 기반 앱 테스트 자동화 MCP 서버입니다. 시나�
 - `apply_fix` - 확인된 수정 사항 적용
 - `rollback_fix` - 적용된 수정 롤백
 
-**전체 자동화**
+**자동화 & CI/CD**
 - `run_full_automation` - 전체 파이프라인 자동 실행
 - `generate_report` - 상세 보고서 생성 (Markdown, HTML, JSON)
-
-**고급 분석 (v2.0)**
-- `analyze_performance` - 성능 심층 분석 (렌더링, 연산, 네트워크, 번들)
-- `analyze_code_deep` - AST 기반 코드 분석 (복잡도, 훅, 의존성)
 - `generate_cicd_config` - CI/CD 설정 자동 생성 (GitHub Actions, Jenkins, GitLab CI)
+
+**관리**
+- `get_pending_fixes` - 대기 중인 수정 제안 목록 조회
+- `get_test_history` - 테스트 실행 이력 조회
 
 ### 설치
 
