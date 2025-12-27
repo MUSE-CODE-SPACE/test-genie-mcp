@@ -1,6 +1,6 @@
 {
   "name": "test-genie-mcp",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "mcpName": "io.github.MUSE-CODE-SPACE/test-genie",
   "description": "AI-powered app test automation MCP server - scenario generation, execution, detection, and auto-fixing",
   "main": "dist/index.js",
