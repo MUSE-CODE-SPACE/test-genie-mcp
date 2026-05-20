@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MUSE-CODE-SPACE/test-genie",
-  "description": "Self-healing AI app test automation: scenarios → execution → detection → iterate-fix loop until green.",
+  "description": "Self-healing AI app test automation + one-command vibe-check (race conditions + security) for vibe coders.",
   "repository": {
     "url": "https://github.com/MUSE-CODE-SPACE/test-genie-mcp",
     "source": "github"
   },
-  "version": "3.0.0",
+  "version": "3.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "test-genie-mcp",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "transport": {
         "type": "stdio"
       }

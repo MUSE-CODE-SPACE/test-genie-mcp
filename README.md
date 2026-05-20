@@ -1,15 +1,66 @@
 # test-genie-mcp
 
-**Self-healing test automation for iOS, Android, Flutter, React Native, and Web apps — as an MCP server.**
+**Built for vibe coders: one command, get a prioritized list of what's actually broken about your project.**
+
+Self-healing test automation for iOS, Android, Flutter, React Native and Web apps — as an MCP server.
 
 [![npm version](https://img.shields.io/npm/v/test-genie-mcp.svg)](https://www.npmjs.com/package/test-genie-mcp)
 [![CI](https://img.shields.io/github/actions/workflow/status/MUSE-CODE-SPACE/test-genie-mcp/ci.yml?branch=main)](https://github.com/MUSE-CODE-SPACE/test-genie-mcp/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-1.29-blue)](https://modelcontextprotocol.io)
 
-> v3.0.0 ships the headline feature: a **self-healing iterate-fix-test loop** that detects failing tests, proposes fixes, validates them, applies them with backups, re-runs the affected tests, auto-rolls-back regressions, and either converges to green or stops cleanly with a resumable token.
+> **v3.1.0 — vibe-check.** One MCP call, ~30 seconds: race conditions + security issues + memory leaks + logic errors + perf smells, prioritized. Stays on your machine, no telemetry. Plug into [v3.0.0](#how-the-iterate-fix-loop-works)'s iterate-fix loop to actually apply the fixes.
 
-<!-- TODO: demo GIF goes here -->
+---
+
+## Vibe coders quickstart
+
+You don't read the docs. You open the project, talk to Claude, and want a verdict. Here it is:
+
+In Claude (with test-genie-mcp installed — [setup](#5-minute-quickstart)):
+
+```
+/vibe-check /Users/me/my-app
+```
+
+Claude calls `diagnose_project` under the hood. ~30 seconds later you see:
+
+```text
+# vibe-check report
+
+- Project: /Users/me/my-app
+- Platform: web
+- Findings: 11 total — 4 critical, 4 high, 1 medium, 1 low
+- Estimated fix time: ~85 min
+
+## Top 5 issues
+
+### 1. [CRIT] Hardcoded AWS access key id found in source
+- File: `server.js:7`
+- Category: security / secret (CWE-798)
+- Confidence: 95%
+- Fix: Move the value to an env var, gitignore the config, rotate the leaked key.
+
+### 2. [CRIT] SQL string built by concatenating user input
+- File: `server.js:21`
+- Category: security / injection (CWE-89)
+- Fix: Use parameterized queries (`db.query("... WHERE id = ?", [id])`).
+
+### 3. [HIGH] useState setter called after await without mount guard
+- File: `UserProfile.tsx:16`
+- Category: race-condition / react-setstate-after-await (CWE-362)
+- Confidence: 78%
+- Fix: Use AbortController and check signal.aborted before calling setters.
+
+… (top 5 shown — full list at output: "detailed")
+
+## Next steps
+1. Address the critical / high findings above.
+2. Re-run diagnose_project after fixing to confirm convergence.
+3. Use run_iterative_fix_loop for test-driven verification of each fix.
+```
+
+If any finding is `autoFixable: true`, Claude offers to apply it via the existing `run_iterative_fix_loop`.
 
 ---
 
@@ -127,7 +178,7 @@ See **[docs/ITERATE_FIX_LOOP.md](docs/ITERATE_FIX_LOOP.md)** for a sequence diag
 
 ---
 
-## Tools (20)
+## Tools (23)
 
 | # | Tool | Mode |
 |---|------|------|
@@ -144,17 +195,89 @@ See **[docs/ITERATE_FIX_LOOP.md](docs/ITERATE_FIX_LOOP.md)** for a sequence diag
 | 11 | `apply_fix` | real |
 | 12 | `rollback_fix` | real |
 | 13 | `run_full_automation` | hybrid |
-| 14 | **`run_iterative_fix_loop`** ⭐ | hybrid |
+| 14 | `run_iterative_fix_loop` (v3.0 headline) | hybrid |
 | 15 | `generate_report` | real |
 | 16 | `get_pending_fixes` | real |
 | 17 | `get_test_history` | real |
 | 18 | `analyze_performance` | real |
 | 19 | `analyze_code_deep` | real |
 | 20 | `generate_cicd_config` | real |
+| 21 | **`diagnose_project`** (v3.1 headline — vibe-check) | real |
+| 22 | `detect_race_conditions` | real |
+| 23 | `detect_security_issues` | real |
 
 `mode` legend in **[docs/SIMULATION_VS_REAL.md](docs/SIMULATION_VS_REAL.md)**.
 
-Plus 4 resources (`test-genie://iteration-logs`, `…/test-history/{path}`, `…/iteration-logs/{loopId}`, `…/applied-fixes/{path}`) and 2 prompts (`full-test-pipeline`, `diagnose-failure`).
+Plus 4 resources (`test-genie://iteration-logs`, `…/test-history/{path}`, `…/iteration-logs/{loopId}`, `…/applied-fixes/{path}`) and 3 prompts (`full-test-pipeline`, `diagnose-failure`, `vibe-check`).
+
+---
+
+## What vibe-check catches
+
+Race conditions (`detect_race_conditions` / `diagnose_project`):
+
+| Pattern | Language | Severity | Auto-fixable |
+|---|---|---|---|
+| `useState` setter called after `await` without mount guard | TS/JS/React | high | no |
+| `useEffect` with async fetch, no AbortController/cleanup | TS/JS/React | high | yes |
+| `arr.forEach(async ...)` (silent fire-and-forget) | TS/JS | medium | yes |
+| Adjacent fetches without `Promise.all` / sequencing | TS/JS | medium | no |
+| TOCTOU: `existsSync` then `readFileSync` without lock | TS/JS Node | medium | no |
+| Non-atomic counter increment in async context | TS/JS | low | no |
+| `@Published` mutation outside `@MainActor` | Swift | medium | no |
+| Concurrent `DispatchQueue` writes without `.barrier` | Swift | medium | no |
+| `MutableStateFlow` mutated off `Dispatchers.Main` | Kotlin | medium | no |
+| `Flow` collected without `flowOn` | Kotlin | low | no |
+| Goroutine + shared map without `sync.Mutex` | Go | high | no |
+
+Security (`detect_security_issues` / `diagnose_project`):
+
+| Pattern | Severity | CWE | Auto-fixable |
+|---|---|---|---|
+| Hardcoded AWS / Stripe / GitHub / Google / Slack token | critical / high | CWE-798 | no (rotate) |
+| Hardcoded JWT secret literal | high | CWE-798 | no |
+| API token in URL query string | high | CWE-200 | no |
+| `.env` file present but not gitignored | high | CWE-538 | yes |
+| SQL string concat with `req.params` / `req.body` | critical | CWE-89 | no |
+| `innerHTML` / `dangerouslySetInnerHTML` with dynamic value | high | CWE-79 | no |
+| `eval()` / `new Function()` with non-literal | critical | CWE-95 | no |
+| `Math.random()` in security-sensitive file | high | CWE-338 | yes |
+| `createHash('md5'\|'sha1')` for password/token hashing | medium | CWE-327 | yes |
+| `child_process.exec` with user-input template literal | critical | CWE-78 | no |
+| `fetch(req.query.url)` (SSRF) | high | CWE-918 | no |
+| CORS `*` origin + `Allow-Credentials: true` | high | CWE-942 | no |
+| Cookie set without `httpOnly` / `secure` / `sameSite` | low | CWE-1004 | no |
+| `yaml.load` without safe schema | medium | CWE-502 | yes |
+
+---
+
+## What vibe-check misses (honest list)
+
+This is a "catch the obvious stuff in 30s" filter, not Snyk / Semgrep / a full SAST tool. We don't catch:
+
+- **Cross-file data-flow.** If user input flows through three files before reaching a `db.query`, the regex won't connect the dots. A real SAST traces taint across the call graph. Roadmap: ts-morph reference walking for top-N entry points.
+- **Vulnerable transitive deps.** We don't query npm advisories — that's `npm audit`'s job, and bundling a stale advisory list would lie. Run `npm audit --json` in parallel if you want dep-CVE coverage.
+- **Race conditions across processes.** We catch in-process JS / Swift / Kotlin / Go races. Distributed races (lock ordering across services, DB transactions) need different tooling.
+- **Type-correct but logic-broken code.** The analyzer is syntactic, not semantic. A `Math.random()` named `getNonce` won't fool us; a properly-named `crypto.randomBytes` used with a tiny entropy budget will.
+- **Custom secret formats.** Internal company tokens with unique prefixes need a regex you can add to `securityAnalyzer.SECRET_PATTERNS`. PR welcome.
+- **Real-time / dynamic issues.** Memory leaks under load, network timeouts, slow renders mid-interaction — those need `run_stress_test` / `run_simulation`, not static analysis.
+
+If you want deeper coverage on top of vibe-check: feed the findings into `run_iterative_fix_loop` for test-verified application, or escalate to Snyk / Semgrep / GitHub Advanced Security for compliance use cases.
+
+---
+
+## vibe-check vs alternatives
+
+|                        | vibe-check (test-genie) | Snyk | Semgrep | GitHub Advanced Security |
+|------------------------|-------------------------|------|---------|--------------------------|
+| Runs locally           | yes                     | hybrid (cloud) | yes  | no (cloud) |
+| Telemetry-free         | yes (zero network calls) | no  | partial | no |
+| Fix loop integration   | yes (`run_iterative_fix_loop`) | no | no | no |
+| Race-condition detection | yes (JS/Swift/Kotlin/Go) | no | partial | partial |
+| Cross-file taint flow  | no (roadmap)            | yes  | yes     | yes |
+| Setup time             | none (already installed if test-genie is installed) | account + auth | install + ruleset | repo-level enable |
+
+If your goal is "before I commit, what's broken?", vibe-check wins on latency. If your goal is "compliance + supply chain audit", use the dedicated tools.
 
 ---
 

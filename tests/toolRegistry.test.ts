@@ -17,13 +17,20 @@ import {
 } from '../src/core/mcpServerFactory.js';
 
 describe('tool registry', () => {
-  it('contains 20 tools', () => {
-    expect(TOOL_REGISTRY.length).toBe(20);
+  it('contains 23 tools (v3.1.0)', () => {
+    expect(TOOL_REGISTRY.length).toBe(23);
   });
 
   it('includes the v3.0.0 headline tool', () => {
     const names = getToolNames();
     expect(names).toContain('run_iterative_fix_loop');
+  });
+
+  it('includes the v3.1.0 vibe-check trio', () => {
+    const names = getToolNames();
+    expect(names).toContain('diagnose_project');
+    expect(names).toContain('detect_race_conditions');
+    expect(names).toContain('detect_security_issues');
   });
 
   it('keeps all v2.x tools (backwards compat)', () => {
@@ -75,14 +82,14 @@ describe('McpServer factory', () => {
 
   it('reports correct capability counts', () => {
     const counts = getCapabilityCounts();
-    expect(counts.tools).toBe(20);
+    expect(counts.tools).toBe(23);
     expect(counts.resources).toBe(4); // 1 static + 3 templated
-    expect(counts.prompts).toBe(2);
-    expect(counts.toolNames).toHaveLength(20);
+    expect(counts.prompts).toBe(3); // + vibe-check
+    expect(counts.toolNames).toHaveLength(23);
   });
 
-  it('reports the v3.0.0 server name + version', () => {
+  it('reports the v3.1.0 server name + version', () => {
     expect(SERVER_NAME).toBe('test-genie-mcp');
-    expect(SERVER_VERSION).toBe('3.0.0');
+    expect(SERVER_VERSION).toBe('3.1.0');
   });
 });

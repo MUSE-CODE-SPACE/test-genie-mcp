@@ -127,7 +127,57 @@ const diagnoseFailure: PromptDescriptor = {
   },
 };
 
-export const PROMPT_DESCRIPTORS: PromptDescriptor[] = [fullTestPipeline, diagnoseFailure];
+const vibeCheck: PromptDescriptor = {
+  name: 'vibe-check',
+  description:
+    'One-command project diagnosis for vibe coders — race conditions + security + memory + logic + performance in 30s.',
+  arguments: [
+    { name: 'projectPath', description: 'Absolute path to the project', required: true },
+    {
+      name: 'focus',
+      description: '"security" | "race" | "all" (default "all") — narrows the scan to one category for faster feedback',
+      required: false,
+    },
+  ],
+  build: (args) => {
+    const projectPath = args.projectPath ?? '<projectPath>';
+    const focus = (args.focus ?? 'all').toLowerCase();
+
+    const checks =
+      focus === 'security'
+        ? '["security"]'
+        : focus === 'race'
+          ? '["race-conditions"]'
+          : '["race-conditions","security","memory-leaks","logic-errors","performance"]';
+
+    const text = [
+      'You are running a vibe-check on the project below. Goal: in one turn, tell the user what is actually broken — race conditions and security issues first — with concrete next steps.',
+      '',
+      `Project: ${projectPath}`,
+      `Focus: ${focus}`,
+      '',
+      'Steps:',
+      `  1. Call diagnose_project with projectPath="${projectPath}", checks=${checks}, output="summary".`,
+      '  2. Take the returned markdownSummary as the spine of your reply, but add a one-sentence opener that names the single most impactful finding.',
+      '  3. For each top finding, render:',
+      '       severity tag, file:line, one-line description, one-line fix.',
+      '  4. If any finding has autoFixable=true, offer at the end: "want me to apply the auto-fixable ones? say yes and I will call run_iterative_fix_loop / apply_fix."',
+      '  5. If no findings: congratulate the user briefly and suggest re-running with checks=["performance"] or detect_memory_leaks for deeper analysis.',
+      '',
+      'Tone rules:',
+      '  - No fluff. The user wants a verdict, not a tour.',
+      '  - Highlight critical / high findings prominently. Bury medium / low.',
+      '  - Always end with a single suggested next command the user can copy-paste.',
+    ].join('\n');
+
+    return {
+      description: 'vibe-check: one-command race + security + health diagnosis',
+      messages: [{ role: 'user', content: { type: 'text', text } }],
+    };
+  },
+};
+
+export const PROMPT_DESCRIPTORS: PromptDescriptor[] = [fullTestPipeline, diagnoseFailure, vibeCheck];
 
 export function findPrompt(name: string): PromptDescriptor | undefined {
   return PROMPT_DESCRIPTORS.find((p) => p.name === name);

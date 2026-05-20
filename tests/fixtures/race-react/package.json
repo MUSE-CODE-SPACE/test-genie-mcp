@@ -1,0 +1,9 @@
+{
+  "name": "race-react-fixture",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Deliberately-broken React project used to verify race-condition detection in v3.1.0 vibe-check.",
+  "dependencies": {
+    "react": "18.2.0"
+  }
+}

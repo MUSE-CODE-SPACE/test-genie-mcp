@@ -5,6 +5,46 @@ All notable changes to `test-genie-mcp` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] — 2026-05-21
+
+### Highlights — what's now possible
+
+**Vibe coders can now run one command and get a prioritized list of what's actually broken about their project.**
+
+- One MCP call, ~30 seconds: race conditions + security issues + memory leaks + logic errors + perf smells, prioritized by severity and confidence. Stays on your machine, no telemetry, no account.
+- Two new analyzers: **`raceConditionAnalyzer`** catches the classic in-process race patterns (useState-after-await, missing AbortController, forEach-await, TOCTOU file ops, DispatchQueue races, Flow dispatcher mismatches, Go map races). **`securityAnalyzer`** catches hardcoded secrets (AWS / Stripe / GitHub / Google / JWT), SQL/XSS/SSRF/eval injection, weak crypto, CORS misconfig, cookie flags, yaml.load.
+- Three new tools: **`diagnose_project`** (headline), **`detect_race_conditions`**, **`detect_security_issues`**. Tool count: 20 → 23.
+- New MCP prompt **`vibe-check`** — usable as `/vibe-check <projectPath>` in Claude UI; tells Claude to call diagnose_project and format the result for the user with top findings, severity tags, and a concrete next-step suggestion.
+- Composes naturally with v3.0.0's iterate-fix loop: `vibe-check` → `diagnose_project` → `autoFix: true` (or hand off to `run_iterative_fix_loop` for test-verified application).
+- Five new fixtures (`tests/fixtures/race-react`, `tests/fixtures/security-node`) and 58 new tests lock in the analyzer behavior — total tests 52 → 110.
+
+### Added
+
+- `diagnose_project` tool (`src/tools/automation/diagnoseProject.ts`) — parallel multi-analyzer scan with per-check 60s timeout, severity threshold filter, summary/detailed/json output modes, and a vibe-friendly Markdown summary ready to paste into chat.
+- `detect_race_conditions` tool — stand-alone race-condition analyzer.
+- `detect_security_issues` tool — stand-alone security analyzer.
+- `src/analyzers/raceConditionAnalyzer.ts` — JS/TS/Swift/Kotlin/Go race-condition patterns with severity, confidence, recommendation, and (where safe) `autoFixable: true`.
+- `src/analyzers/securityAnalyzer.ts` — secret regex + code-pattern AST-style detection + `.env`-vs-`.gitignore` hygiene check + snippet redaction so the report itself doesn't leak secrets.
+- `prompt://test-genie/vibe-check` — `/vibe-check <projectPath>` slash command for Claude UI; arguments: `projectPath` (required), `focus` (`security` / `race` / `all`).
+- `tests/fixtures/race-react/` — broken React project (useState-after-await race, useEffect missing AbortController, forEach-await, TOCTOU). 
+- `tests/fixtures/security-node/` — broken Node app (AWS key, GitHub PAT, JWT secret, SQL injection, eval, Math.random for tokens, md5, exec injection, CORS wildcard+credentials, cookie without flags, SSRF).
+- `tests/raceConditionAnalyzer.test.ts`, `tests/securityAnalyzer.test.ts`, `tests/diagnoseProject.test.ts` — 58 new tests (positive + negative + fixture integration).
+
+### Changed
+
+- `SERVER_VERSION` 3.0.0 → 3.1.0.
+- README leads with the **vibe-coders quickstart** (sample output included). New "What gets caught" / "What gets missed" / "vs alternatives" sections.
+- Tool registry display order: vibe-check trio appended after existing 20 tools so backwards-compatible clients keep the same first-20 indices.
+
+### Backwards compatibility
+
+- All 20 v3.0.0 tools still present, unchanged behavior. v3.0.0 clients work without modification.
+- Capability counts in `tools/list`: tools 20 → 23, prompts 2 → 3. Resources unchanged at 4.
+
+### Contributors
+
+- Self (Claude Opus 4.7, 1M context) — co-author on the v3.1.0 vibe-check implementation.
+
 ## [3.0.0] — 2026-05-20
 
 ### Highlights — what's now possible

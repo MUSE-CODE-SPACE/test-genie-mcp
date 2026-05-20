@@ -29,6 +29,9 @@ import { generateReport } from '../tools/automation/generateReport.js';
 import { generateCICDConfig, writeCICDConfig } from '../tools/automation/cicdIntegration.js';
 import { analyzePerformance } from '../analyzers/performanceAnalyzer.js';
 import { analyzeProject } from '../analyzers/astAnalyzer.js';
+import { analyzeRaceConditions } from '../analyzers/raceConditionAnalyzer.js';
+import { analyzeSecurity } from '../analyzers/securityAnalyzer.js';
+import { diagnoseProject } from '../tools/automation/diagnoseProject.js';
 
 import * as storage from '../storage/index.js';
 import { validatePathWithinAllowedRoot, ToolError } from '../security.js';
@@ -575,6 +578,70 @@ const generateCICDTool: RegisteredTool = {
 };
 
 // ---------------------------------------------------------------------------
+// v3.1.0 — vibe-check trio: diagnose_project + detect_race_conditions + detect_security_issues
+// ---------------------------------------------------------------------------
+
+const SeverityEnum = z.enum(['low', 'medium', 'high', 'critical']);
+const CheckEnum = z.enum(['race-conditions', 'security', 'memory-leaks', 'logic-errors', 'performance']);
+
+const diagnoseProjectTool: RegisteredTool = {
+  name: 'diagnose_project',
+  description:
+    '[mode: real, v3.1.0 headline] vibe-check the project — race conditions + security + memory + logic + performance in one parallel sweep. Returns prioritized findings + Markdown summary ready for chat.',
+  inputShape: {
+    projectPath: z.string(),
+    platforms: z.array(PlatformEnum).optional(),
+    checks: z.array(CheckEnum).optional(),
+    severityThreshold: SeverityEnum.optional(),
+    output: z.enum(['summary', 'detailed', 'json']).optional(),
+    autoFix: z.boolean().optional(),
+    perCheckTimeoutMs: z.number().optional(),
+  },
+  handler: async (args) => {
+    const projectPath = safePath(args.projectPath);
+    const result = await diagnoseProject({
+      projectPath,
+      platforms: args.platforms,
+      checks: args.checks,
+      severityThreshold: args.severityThreshold,
+      output: args.output,
+      autoFix: args.autoFix,
+      perCheckTimeoutMs: args.perCheckTimeoutMs,
+    });
+    if (args.output === 'json') {
+      return json(result);
+    }
+    return { text: result.markdownSummary };
+  },
+};
+
+const detectRaceConditionsTool: RegisteredTool = {
+  name: 'detect_race_conditions',
+  description:
+    '[mode: real, v3.1.0] Stand-alone race-condition detector — useState-after-await, missing AbortController, forEach-await, TOCTOU file ops, DispatchQueue races, Flow dispatcher mismatches.',
+  inputShape: { projectPath: z.string(), platform: PlatformEnum.optional() },
+  handler: (args) => {
+    const projectPath = safePath(args.projectPath);
+    const appStructure = analyzeAppStructure({ projectPath, platform: args.platform });
+    const result = analyzeRaceConditions(projectPath, appStructure.platform);
+    return json(result);
+  },
+};
+
+const detectSecurityIssuesTool: RegisteredTool = {
+  name: 'detect_security_issues',
+  description:
+    '[mode: real, v3.1.0] Stand-alone security scanner — hardcoded secrets (AWS/Stripe/GitHub/JWT), SQL/XSS/SSRF/eval injection, weak crypto, CORS misconfig, cookie flags, yaml.load.',
+  inputShape: { projectPath: z.string(), platform: PlatformEnum.optional() },
+  handler: (args) => {
+    const projectPath = safePath(args.projectPath);
+    const appStructure = analyzeAppStructure({ projectPath, platform: args.platform });
+    const result = analyzeSecurity(projectPath, appStructure.platform);
+    return json(result);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry — order matters: this is the display order in tools/list.
 // ---------------------------------------------------------------------------
 export const TOOL_REGISTRY: readonly RegisteredTool[] = [
@@ -598,6 +665,10 @@ export const TOOL_REGISTRY: readonly RegisteredTool[] = [
   analyzePerformanceTool,
   analyzeCodeDeepTool,
   generateCICDTool,
+  // v3.1.0 vibe-check trio
+  diagnoseProjectTool, // ★ v3.1.0 headline
+  detectRaceConditionsTool,
+  detectSecurityIssuesTool,
 ];
 
 export function getToolNames(): string[] {

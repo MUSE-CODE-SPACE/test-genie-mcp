@@ -1,0 +1,9 @@
+{
+  "name": "security-node-fixture",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Deliberately-broken Node app used to verify security detection in v3.1.0 vibe-check.",
+  "dependencies": {
+    "express": "4.18.0"
+  }
+}
