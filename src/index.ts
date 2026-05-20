@@ -35,6 +35,26 @@ import { analyzeProject } from './analyzers/astAnalyzer.js';
 // Import storage
 import * as storage from './storage/index.js';
 
+// Security: capability-based path validation + ToolError shape.
+import {
+  validatePathWithinAllowedRoot,
+  getAllowedRoot,
+  ToolError,
+} from './security.js';
+
+/**
+ * Resolve and validate `args.projectPath` against TEST_GENIE_ALLOWED_ROOT
+ * (defaults to process.cwd()). Throws ToolError('PATH_TRAVERSAL') if outside.
+ * Use this for every tool that takes a projectPath argument.
+ */
+function safeProjectPath(args: Record<string, unknown>): string {
+  const raw = args.projectPath;
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new ToolError('projectPath is required', 'VALIDATION_ERROR', { input: args });
+  }
+  return validatePathWithinAllowedRoot(raw);
+}
+
 // Define tools
 const tools: Tool[] = [
   // ============================================
@@ -332,7 +352,7 @@ const tools: Tool[] = [
 const server = new Server(
   {
     name: 'test-genie-mcp',
-    version: '2.0.0',
+    version: '2.1.0',
   },
   {
     capabilities: {
@@ -358,8 +378,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       // Analysis tools
       case 'analyze_app_structure': {
+        const projectPath = safeProjectPath(args);
         const result = analyzeAppStructure({
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
           depth: args.depth as any,
         });
@@ -367,9 +388,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'generate_scenarios': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
         const result = generateScenarios({
           appStructure,
           testTypes: args.testTypes as any,
@@ -381,10 +401,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'create_test_plan': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
-        const scenarios = storage.getScenarios(args.projectPath as string);
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
+        const scenarios = storage.getScenarios(projectPath);
 
         if (args.template) {
           const result = createQuickPlan(
@@ -408,9 +427,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Execution tools
       case 'run_scenario_test': {
+        const projectPath = safeProjectPath(args);
         const result = await runScenarioTest({
           scenarioId: args.scenarioId as string,
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
           device: args.device as string,
           options: {
@@ -422,9 +442,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'run_simulation': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
         const result = await runSimulation({
           appStructure,
           duration: args.duration as number,
@@ -436,9 +455,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'run_stress_test': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
         const result = await runStressTest({
           appStructure,
           targetType: args.targetType as any,
@@ -452,9 +470,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Detection tools
       case 'detect_memory_leaks': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
         const result = detectMemoryLeaks({
           appStructure,
           analysisType: args.analysisType as any,
@@ -464,9 +481,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'detect_logic_errors': {
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const appStructure = analyzeAppStructure({ projectPath });
         const result = detectLogicErrors({
           appStructure,
           analysisDepth: args.analysisDepth as any,
@@ -477,10 +493,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Fixing tools
       case 'suggest_fixes': {
-        const issues = storage.getIssues(args.projectPath as string);
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const projectPath = safeProjectPath(args);
+        const issues = storage.getIssues(projectPath);
+        const appStructure = analyzeAppStructure({ projectPath });
 
         const filteredIssues = args.issueIds
           ? issues.filter(i => (args.issueIds as string[]).includes(i.id))
@@ -488,7 +503,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const result = suggestFixes({
           issues: filteredIssues,
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: appStructure.platform,
           maxSuggestions: args.maxSuggestions as number,
         });
@@ -527,8 +542,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Automation tools
       case 'run_full_automation': {
+        const projectPath = safeProjectPath(args);
         const result = await runFullAutomation({
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
           testTypes: args.testTypes as any,
           autoFix: args.autoFix as boolean,
@@ -551,20 +567,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'generate_report': {
-        const fixes = storage.getFixes(args.projectPath as string);
-        const issues = storage.getIssues(args.projectPath as string);
-        const results = storage.getTestResults(args.projectPath as string);
+        const projectPath = safeProjectPath(args);
+        const fixes = storage.getFixes(projectPath);
+        const issues = storage.getIssues(projectPath);
+        const results = storage.getTestResults(projectPath);
 
         // Create a minimal automation result for report generation
-        const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
-        });
+        const appStructure = analyzeAppStructure({ projectPath });
 
         const result = generateReport({
           automationResult: {
             id: 'manual',
             config: {
-              projectPath: args.projectPath as string,
+              projectPath,
               platform: appStructure.platform,
               testTypes: ['e2e'],
               autoFix: false,
@@ -600,22 +615,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Utility tools
       case 'get_pending_fixes': {
-        const fixes = storage.getPendingFixes(args.projectPath as string);
+        const projectPath = safeProjectPath(args);
+        const fixes = storage.getPendingFixes(projectPath);
         return { content: [{ type: 'text', text: JSON.stringify(fixes.map(f => ({ id: f.fix.id, title: f.fix.title, file: f.fix.file, confidence: f.fix.confidence })), null, 2) }] };
       }
 
       case 'get_test_history': {
-        const history = storage.getTestResults(args.projectPath as string, args.limit as number);
+        const projectPath = safeProjectPath(args);
+        const history = storage.getTestResults(projectPath, args.limit as number);
         return { content: [{ type: 'text', text: JSON.stringify(history.map(h => ({ id: h.result.id, scenario: h.result.scenarioName, status: h.result.status, duration: h.result.duration, executedAt: h.result.executedAt })), null, 2) }] };
       }
 
       // Enhanced Analysis Tools
       case 'analyze_performance': {
+        const projectPath = safeProjectPath(args);
         const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
         });
-        const result = await analyzePerformance(args.projectPath as string, appStructure.platform);
+        const result = await analyzePerformance(projectPath, appStructure.platform);
 
         let response = `# Performance Analysis Report\n\n`;
         response += `**Score:** ${result.summary.performanceScore}/100\n\n`;
@@ -637,11 +655,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'analyze_code_deep': {
+        const projectPath = safeProjectPath(args);
         const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
         });
-        const result = await analyzeProject(args.projectPath as string, appStructure.platform);
+        const result = await analyzeProject(projectPath, appStructure.platform);
 
         let response = `# Deep Code Analysis\n\n`;
         response += `**Files Analyzed:** ${result.summary.totalFiles}\n`;
@@ -658,13 +677,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'generate_cicd_config': {
+        const projectPath = safeProjectPath(args);
         const appStructure = analyzeAppStructure({
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: args.platform as any,
         });
 
         const cicdConfig = {
-          projectPath: args.projectPath as string,
+          projectPath,
           platform: appStructure.platform,
           provider: args.provider as any,
           options: {
@@ -691,6 +711,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
+    if (error instanceof ToolError) {
+      return {
+        content: [{ type: 'text', text: `Error [${error.code}]: ${error.message}` }],
+        isError: true,
+      };
+    }
     const message = error instanceof Error ? error.message : String(error);
     return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
   }
@@ -701,6 +727,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('Test Genie MCP server running on stdio');
+  console.error(`[security] Allowed root: ${getAllowedRoot()}`);
 }
 
 main().catch((error) => {

@@ -752,10 +752,14 @@ export async function startMetro(projectPath: string): Promise<{
       // Not running, start it
     }
 
-    // Start Metro in background
-    exec(`cd "${projectPath}" && npx react-native start --reset-cache`, {
+    // Start Metro in background.
+    // SECURITY: pass argv array via spawn, never shell-concat projectPath
+    // (which is user-supplied). `cwd` already controls the working directory.
+    spawn('npx', ['react-native', 'start', '--reset-cache'], {
       cwd: projectPath,
-    });
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
 
     // Wait for Metro to be ready
     for (let i = 0; i < 30; i++) {

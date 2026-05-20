@@ -156,6 +156,26 @@ When issues are detected, Test Genie will:
 4. **Apply Fix**: Only apply after explicit approval
 5. **Backup**: Automatically create backups before applying
 
+### Security
+
+Test Genie operates on user project paths and may spawn external test
+runners (Xcode, adb, flutter, npx, etc.). It enforces a **capabilities-based
+allowed-root boundary** on every tool that takes a `projectPath` argument:
+
+- By default the server can only operate within the directory it was
+  launched from (`process.cwd()`).
+- Set `TEST_GENIE_ALLOWED_ROOT` to scope it tighter:
+
+  ```bash
+  TEST_GENIE_ALLOWED_ROOT=/Users/you/projects npx test-genie-mcp
+  ```
+
+  Any `projectPath` outside the allowed root is rejected with a structured
+  `ToolError(code='PATH_TRAVERSAL')` before any file or subprocess access.
+
+See [`SECURITY.md`](SECURITY.md) for the full threat model, subprocess
+allow-list, and reporting policy.
+
 ---
 
 <a name="korean"></a>
