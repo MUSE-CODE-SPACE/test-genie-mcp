@@ -1,320 +1,234 @@
-# Test Genie MCP
+# test-genie-mcp
 
-**AI-powered App Test Automation MCP Server**
-
-> Multi-platform test automation for iOS, Android, Flutter, React Native, and Web applications.
+**Self-healing test automation for iOS, Android, Flutter, React Native, and Web apps — as an MCP server.**
 
 [![npm version](https://img.shields.io/npm/v/test-genie-mcp.svg)](https://www.npmjs.com/package/test-genie-mcp)
+[![CI](https://img.shields.io/github/actions/workflow/status/MUSE-CODE-SPACE/test-genie-mcp/ci.yml?branch=main)](https://github.com/MUSE-CODE-SPACE/test-genie-mcp/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP](https://img.shields.io/badge/MCP-1.29-blue)](https://modelcontextprotocol.io)
 
-[English](#english) | [한국어](#korean)
+> v3.0.0 ships the headline feature: a **self-healing iterate-fix-test loop** that detects failing tests, proposes fixes, validates them, applies them with backups, re-runs the affected tests, auto-rolls-back regressions, and either converges to green or stops cleanly with a resumable token.
+
+<!-- TODO: demo GIF goes here -->
 
 ---
 
-<a name="english"></a>
-## English
+## Why test-genie?
 
-### Overview
+The bottleneck in mobile + cross-platform test automation isn't writing tests — it's the loop *between* a failing test and a passing test. test-genie closes that loop:
 
-Test Genie MCP is an AI-powered MCP server for automated app testing. It provides a complete test pipeline from scenario generation to test execution, issue detection, fix suggestions, and automated fixes.
+```
+failing test → analyzer flags issue → fix proposed → dry-run + syntax check →
+applied with backup → affected tests re-run → regression check → loop or stop
+```
 
-### Features
+Other tools (Detox, Maestro, Playwright, `xcodebuild test`) run tests. test-genie **runs tests *and* drives the fix until the bar is met or it can no longer make progress** — without you scrubbing through stack traces.
 
-#### Multi-Platform Support
+---
 
-| Platform | Languages | Test Frameworks |
-|----------|-----------|-----------------|
-| iOS | Swift, Objective-C | XCTest, XCUITest, Instruments |
-| Android | Kotlin, Java | Espresso, UI Automator, Android Profiler |
-| Flutter | Dart | flutter_test, integration_test, Golden Tests |
-| React Native | TypeScript, JavaScript | Jest, Detox, RNTL |
-| Web | TypeScript, JavaScript | Playwright, Cypress, Lighthouse |
-
-#### 19 MCP Tools
-
-| Category | Tools |
-|----------|-------|
-| **Analysis** | `analyze_app_structure`, `analyze_code_deep`, `analyze_performance` |
-| **Scenario** | `generate_scenarios`, `create_test_plan` |
-| **Execution** | `run_scenario_test`, `run_simulation`, `run_stress_test` |
-| **Detection** | `detect_memory_leaks`, `detect_logic_errors` |
-| **Fixing** | `suggest_fixes`, `confirm_fix`, `apply_fix`, `rollback_fix` |
-| **Automation** | `run_full_automation`, `generate_report`, `generate_cicd_config` |
-| **Management** | `get_pending_fixes`, `get_test_history` |
-
-**Analysis & Scenario Generation**
-- `analyze_app_structure` - Analyze codebase structure (screens, components, APIs, state)
-- `analyze_code_deep` - AST-based code analysis (complexity, hooks, dependencies)
-- `analyze_performance` - Deep performance analysis (rendering, computation, network, bundle)
-- `generate_scenarios` - AI-powered test scenario generation
-- `create_test_plan` - Create test plans and schedules
-
-**Test Execution**
-- `run_scenario_test` - Execute individual scenario tests
-- `run_simulation` - User behavior simulation (random/pattern-based)
-- `run_stress_test` - Stress and load testing
-
-**Issue Detection**
-- `detect_memory_leaks` - Memory leak detection (heap analysis, circular references)
-- `detect_logic_errors` - Logic error detection (race conditions, state inconsistencies)
-
-**Fix Suggestions & Application**
-- `suggest_fixes` - AI-powered fix suggestions
-- `confirm_fix` - User confirmation for fixes
-- `apply_fix` - Apply confirmed fixes
-- `rollback_fix` - Rollback applied fixes
-
-**Automation & CI/CD**
-- `run_full_automation` - Run complete pipeline automatically
-- `generate_report` - Generate detailed reports (Markdown, HTML, JSON)
-- `generate_cicd_config` - Generate CI/CD configs (GitHub Actions, Jenkins, GitLab CI)
-
-**Management**
-- `get_pending_fixes` - Get list of pending fix suggestions
-- `get_test_history` - Get test execution history
-
-### Installation
+## 5-minute Quickstart
 
 ```bash
+# 1. Install
 npm install -g test-genie-mcp
-```
 
-Or install from source:
-
-```bash
-git clone https://github.com/MUSE-CODE-SPACE/test-genie-mcp.git
-cd test-genie-mcp
-npm install
-npm run build
-```
-
-### Usage with Claude Desktop
-
-Add to Claude Desktop config (`~/.config/claude/claude_desktop_config.json`):
-
-```json
+# 2. Add to Claude Desktop config (~/.config/claude/claude_desktop_config.json)
 {
   "mcpServers": {
     "test-genie": {
       "command": "npx",
-      "args": ["test-genie-mcp"]
+      "args": ["test-genie-mcp"],
+      "env": {
+        "TEST_GENIE_ALLOWED_ROOT": "/path/to/your/project"
+      }
     }
   }
 }
+
+# 3. Restart Claude Desktop. From a chat:
+#    "Run the iterate-fix loop on /Users/me/my-rn-app with autoApply=false"
 ```
 
-Or use Claude CLI:
+Expected output (truncated):
 
-```bash
-claude mcp add test-genie-mcp npx test-genie-mcp
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Iterative fix loop f8b3… — PAUSED-FOR-CONFIRMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Iterations completed: 1
+Fixes applied:        0
+Regressions rolled back: 0
+Final tests:          7/10 passing (3 failing)
+
+Pending confirmations (3):
+  - 71fbe…: Fix: useEffect missing cleanup for setInterval (confidence: 85)
+  - 92ad1…: Fix: Force-unwrap on possibly-undefined name (confidence: 85)
+  - …
+
+Resume token: f8b3…
 ```
 
-### Example Usage
-
-#### Full Automation
-```
-User: "Run automated tests"
-
-Claude will:
-1. Analyze your app structure
-2. Generate test scenarios
-3. Execute tests
-4. Detect issues (memory leaks, logic errors)
-5. Suggest fixes
-6. Wait for your confirmation
-7. Apply approved fixes
-8. Generate report
-```
-
-#### Step-by-Step
-
-```bash
-# Analyze app
-analyze_app_structure(projectPath: "/path/to/app")
-
-# Generate scenarios
-generate_scenarios(projectPath: "/path/to/app", testTypes: ["e2e", "unit"])
-
-# Detect memory leaks
-detect_memory_leaks(projectPath: "/path/to/app")
-
-# Get fix suggestions
-suggest_fixes(projectPath: "/path/to/app")
-
-# Confirm and apply fix
-confirm_fix(fixId: "xxx", action: "approve")
-apply_fix(fixId: "xxx")
-```
-
-### Fix Confirmation Workflow
-
-When issues are detected, Test Genie will:
-
-1. **Suggest Fixes**: Generate AI-powered fix suggestions with confidence scores
-2. **Show Diff**: Display exactly what will change
-3. **Await Confirmation**: Wait for user approval
-4. **Apply Fix**: Only apply after explicit approval
-5. **Backup**: Automatically create backups before applying
-
-### Security
-
-Test Genie operates on user project paths and may spawn external test
-runners (Xcode, adb, flutter, npx, etc.). It enforces a **capabilities-based
-allowed-root boundary** on every tool that takes a `projectPath` argument:
-
-- By default the server can only operate within the directory it was
-  launched from (`process.cwd()`).
-- Set `TEST_GENIE_ALLOWED_ROOT` to scope it tighter:
-
-  ```bash
-  TEST_GENIE_ALLOWED_ROOT=/Users/you/projects npx test-genie-mcp
-  ```
-
-  Any `projectPath` outside the allowed root is rejected with a structured
-  `ToolError(code='PATH_TRAVERSAL')` before any file or subprocess access.
-
-See [`SECURITY.md`](SECURITY.md) for the full threat model, subprocess
-allow-list, and reporting policy.
+Re-call with `autoApply: true` (or `resumeToken: "f8b3…"`) to actually patch the files.
 
 ---
 
-<a name="korean"></a>
-## 한국어
+## Real use cases
 
-### 개요
+### 1. React Native memory-leak self-healing
 
-Test Genie MCP는 AI 기반 앱 테스트 자동화 MCP 서버입니다. 시나리오 생성부터 테스트 실행, 문제 검출, 수정 제안 및 적용까지 전체 테스트 파이프라인을 자동화합니다.
+A team adds `setInterval(...)` in a `useEffect` and forgets cleanup. test-genie's `detect_memory_leaks` flags it, `suggest_fixes` proposes `return () => clearInterval(id)`, dry-runs the patch through the TS compiler, applies it with a backup, re-runs only the affected snapshot test, confirms 100% pass, stops. **Before:** 1 failing snapshot. **After:** 0 failing, 1 fix applied, 1 backup at `.test-genie-backups/`.
 
-### 기능
+### 2. Flutter widget `dispose()` automation
 
-#### 멀티 플랫폼 지원
+`AnimationController` left undisposed. test-genie sees the missing `dispose()` override, generates a Dart `@override dispose() { controller.dispose(); super.dispose(); }` block, runs `dart analyze` on the patched file, applies, re-runs `flutter test`, converges.
 
-| 플랫폼 | 언어 | 테스트 프레임워크 |
-|--------|------|-------------------|
-| iOS | Swift, Objective-C | XCTest, XCUITest, Instruments |
-| Android | Kotlin, Java | Espresso, UI Automator, Android Profiler |
-| Flutter | Dart | flutter_test, integration_test, Golden Tests |
-| React Native | TypeScript, JavaScript | Jest, Detox, RNTL |
-| Web | TypeScript, JavaScript | Playwright, Cypress, Lighthouse |
+### 3. iOS retain-cycle (closure capture)
 
-#### 19개 MCP 도구
-
-| 카테고리 | 도구 |
-|----------|------|
-| **분석** | `analyze_app_structure`, `analyze_code_deep`, `analyze_performance` |
-| **시나리오** | `generate_scenarios`, `create_test_plan` |
-| **실행** | `run_scenario_test`, `run_simulation`, `run_stress_test` |
-| **탐지** | `detect_memory_leaks`, `detect_logic_errors` |
-| **수정** | `suggest_fixes`, `confirm_fix`, `apply_fix`, `rollback_fix` |
-| **자동화** | `run_full_automation`, `generate_report`, `generate_cicd_config` |
-| **관리** | `get_pending_fixes`, `get_test_history` |
-
-**분석 & 시나리오 생성**
-- `analyze_app_structure` - 앱 코드베이스 분석 (화면, 컴포넌트, API, 상태관리)
-- `analyze_code_deep` - AST 기반 코드 분석 (복잡도, 훅, 의존성)
-- `analyze_performance` - 성능 심층 분석 (렌더링, 연산, 네트워크, 번들)
-- `generate_scenarios` - AI 기반 테스트 시나리오 자동 생성
-- `create_test_plan` - 테스트 계획 수립 및 스케줄링
-
-**테스트 실행**
-- `run_scenario_test` - 개별 시나리오 테스트 실행
-- `run_simulation` - 사용자 행동 시뮬레이션 (랜덤/패턴 기반)
-- `run_stress_test` - 스트레스/부하 테스트
-
-**이슈 검출**
-- `detect_memory_leaks` - 메모리 릭 감지 (힙 분석, 순환 참조)
-- `detect_logic_errors` - 논리적 오류 검출 (레이스 컨디션, 상태 불일치)
-
-**수정 제안 & 적용**
-- `suggest_fixes` - AI 기반 수정 방안 제안
-- `confirm_fix` - 수정 사항 사용자 확인
-- `apply_fix` - 확인된 수정 사항 적용
-- `rollback_fix` - 적용된 수정 롤백
-
-**자동화 & CI/CD**
-- `run_full_automation` - 전체 파이프라인 자동 실행
-- `generate_report` - 상세 보고서 생성 (Markdown, HTML, JSON)
-- `generate_cicd_config` - CI/CD 설정 자동 생성 (GitHub Actions, Jenkins, GitLab CI)
-
-**관리**
-- `get_pending_fixes` - 대기 중인 수정 제안 목록 조회
-- `get_test_history` - 테스트 실행 이력 조회
-
-### 설치
-
-```bash
-npm install -g test-genie-mcp
-```
-
-또는 소스에서 설치:
-
-```bash
-git clone https://github.com/MUSE-CODE-SPACE/test-genie-mcp.git
-cd test-genie-mcp
-npm install
-npm run build
-```
-
-### Claude Desktop에서 사용
-
-Claude Desktop 설정 파일 (`~/.config/claude/claude_desktop_config.json`)에 추가:
-
-```json
-{
-  "mcpServers": {
-    "test-genie": {
-      "command": "npx",
-      "args": ["test-genie-mcp"]
-    }
-  }
-}
-```
-
-또는 Claude CLI 사용:
-
-```bash
-claude mcp add test-genie-mcp npx test-genie-mcp
-```
-
-### 사용 예시
-
-#### 전체 자동화
-```
-User: "자동화 테스트해줘"
-
-Claude가 수행:
-1. 앱 구조 분석
-2. 테스트 시나리오 생성
-3. 테스트 실행
-4. 문제 검출 (메모리 릭, 로직 오류)
-5. 수정 제안
-6. 사용자 확인 대기
-7. 승인된 수정 적용
-8. 보고서 생성
-```
-
-### 수정 확인 워크플로우
-
-문제가 검출되면 Test Genie가:
-
-1. **수정 제안**: 신뢰도 점수와 함께 AI 기반 수정 제안 생성
-2. **Diff 표시**: 변경될 내용 정확히 표시
-3. **확인 대기**: 사용자 승인 대기
-4. **수정 적용**: 명시적 승인 후에만 적용
-5. **백업**: 적용 전 자동 백업 생성
+`self.timer = Timer.scheduledTimer(...) { _ in self.tick() }` — rule-based detector flags closure self-capture, fixer rewrites to `[weak self] _ in guard let self = self else { return }; self.tick()`. If `swiftc` is on PATH the syntax check is real; otherwise test-genie reports "downgraded validation" so you know.
 
 ---
 
-## Links
+## How the iterate-fix loop works
 
-- [npm Package](https://www.npmjs.com/package/test-genie-mcp)
-- [GitHub Repository](https://github.com/MUSE-CODE-SPACE/test-genie-mcp)
-- [MCP Registry](https://registry.modelcontextprotocol.io)
+```
+┌────────────────────┐
+│   collect tests    │  (run_scenario_test / supplied list)
+└─────────┬──────────┘
+          │
+   pass-rate ≥ threshold? ── yes ──▶  SUCCESS
+          │ no
+          ▼
+┌────────────────────┐
+│  detect issues     │   memory + logic analyzers
+└─────────┬──────────┘
+          │
+┌────────────────────┐
+│  suggest fixes     │   rule-based (default) → LLM (hybrid, optional)
+└─────────┬──────────┘
+          │
+┌────────────────────┐
+│  dry-run + syntax  │   TS compiler API / platform compiler / brace check
+└─────────┬──────────┘
+          │
+┌────────────────────┐
+│  apply with backup │   per-file `.test-genie-backups/`
+└─────────┬──────────┘
+          │
+┌────────────────────┐
+│  re-run tests      │   regression?  yes → auto-rollback
+└─────────┬──────────┘
+          │
+          ▼
+   loop (≤ maxIterations, ≤ totalTimeout)
+```
+
+See **[docs/ITERATE_FIX_LOOP.md](docs/ITERATE_FIX_LOOP.md)** for a sequence diagram and the full safety-guard list.
+
+---
+
+## Tools (20)
+
+| # | Tool | Mode |
+|---|------|------|
+| 1 | `analyze_app_structure` | real |
+| 2 | `generate_scenarios` | real |
+| 3 | `create_test_plan` | real |
+| 4 | `run_scenario_test` | hybrid |
+| 5 | `run_simulation` | simulated |
+| 6 | `run_stress_test` | hybrid |
+| 7 | `detect_memory_leaks` | real |
+| 8 | `detect_logic_errors` | real |
+| 9 | `suggest_fixes` | real |
+| 10 | `confirm_fix` | real |
+| 11 | `apply_fix` | real |
+| 12 | `rollback_fix` | real |
+| 13 | `run_full_automation` | hybrid |
+| 14 | **`run_iterative_fix_loop`** ⭐ | hybrid |
+| 15 | `generate_report` | real |
+| 16 | `get_pending_fixes` | real |
+| 17 | `get_test_history` | real |
+| 18 | `analyze_performance` | real |
+| 19 | `analyze_code_deep` | real |
+| 20 | `generate_cicd_config` | real |
+
+`mode` legend in **[docs/SIMULATION_VS_REAL.md](docs/SIMULATION_VS_REAL.md)**.
+
+Plus 4 resources (`test-genie://iteration-logs`, `…/test-history/{path}`, `…/iteration-logs/{loopId}`, `…/applied-fixes/{path}`) and 2 prompts (`full-test-pipeline`, `diagnose-failure`).
+
+---
+
+## When NOT to use test-genie
+
+- **Production-gate test runs.** test-genie is built for the *development* feedback loop. For shipping decisions, use a proper CI that you control end-to-end.
+- **Code your team must hand-review every line of.** The loop's job is to *propose and apply* fixes; if every fix needs a human eye, leave `autoApply: false` (the default) and use it as a fix-proposal generator only.
+- **No backup / no version control situations.** test-genie's auto-rollback is best-effort and requires the per-file backup to exist. Always run inside a git working tree.
+
+---
+
+## Comparison
+
+| | test-genie | Detox | Maestro | xcodebuild test |
+|---|---|---|---|---|
+| Runs E2E / unit tests | ✅ (via Jest/Detox/etc.) | ✅ | ✅ | ✅ |
+| Detects code issues | ✅ rule + LLM | ❌ | ❌ | ❌ |
+| **Iterative fix loop** | **✅** | ❌ | ❌ | ❌ |
+| Auto-rollback on regression | ✅ | ❌ | ❌ | ❌ |
+| MCP-native (talks to Claude / agents) | ✅ | ❌ | ❌ | ❌ |
+| Multi-platform | iOS+Android+Web+Flutter+RN | iOS+Android | iOS+Android | iOS only |
+
+test-genie *uses* tools like Jest, Detox, and `xcodebuild test` under the hood — it sits at the orchestration layer, not the test-runner layer.
+
+---
+
+## Known limitations
+
+- **Platform syntax check downgrade.** For Swift/Kotlin/Java/Dart we try the platform compiler in `-typecheck` mode. If the compiler isn't on PATH, we fall back to brace-balance validation and surface `downgraded: true` in the result. Install `swiftc` / `kotlinc` / `javac` / `dart` for real validation.
+- **LLM is optional and gated.** `strategy: 'hybrid'` only kicks LLM in when rule-based confidence is below threshold. Without an API key the loop is rule-based-only — no failure.
+- **Storage is per-machine.** Test history / iteration logs live under `$TEST_GENIE_STORAGE_DIR` (defaults to `~/.test-genie-mcp`). Not synced across machines.
+- **Simulated mode is "simulation," not magic.** `run_simulation` returns *plausible* anomalies, not real ones. Use `run_scenario_test` (hybrid) for real-device runs.
+
+---
+
+## Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TEST_GENIE_ALLOWED_ROOT` | `cwd` | Capability-based path safety — server refuses to read/write outside this root. |
+| `TEST_GENIE_STORAGE_DIR` | `~/.test-genie-mcp` | Where scenarios / results / iteration logs live. |
+| `TEST_GENIE_LLM_PROVIDER` | auto-detect | `anthropic` / `openai` / `none`. |
+| `ANTHROPIC_API_KEY` | — | Used when provider = `anthropic`. |
+| `OPENAI_API_KEY` | — | Used when provider = `openai`. |
+| `TEST_GENIE_ANTHROPIC_MODEL` | `claude-haiku-4-5` | Override Anthropic model. |
+| `TEST_GENIE_OPENAI_MODEL` | `gpt-4o-mini` | Override OpenAI model. |
+
+---
+
+## Migrating from v2.x
+
+- `run_full_automation` still works. The `confirmMode` / `autoFix` options are kept for compatibility but **`autoApply: boolean` is the new way** — `autoApply: true` is equivalent to `confirmMode: 'auto'`.
+- Subprocess hardening means platform tools now reject scheme / device / package-name arguments that contain shell metacharacters. If your CI was passing weird-looking values, sanitize them first.
+- See **[CHANGELOG.md](CHANGELOG.md)** for the full breaking-change list + migration recipes.
+
+---
+
+## Roadmap
+
+- LLM-based fix-proposal **voting** (multiple proposals → pick the best by syntax + retest delta)
+- Multi-repo sync (run the loop across N repos in parallel from one MCP call)
+- A "watch mode" that runs the loop on file save
+- Better Detox / Maestro artifact ingestion (link videos into iteration logs)
+
+---
+
+## Contributing
+
+Issues, PRs, and ideas welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** (TODO). Code lives under `src/`, tests under `tests/`. Run `npm test` before sending a PR.
+
+## Maintainer
+
+[@MUSE-CODE-SPACE](https://github.com/MUSE-CODE-SPACE) — Yoonkyoung Gong.
 
 ## License
 
-MIT
-
-## Author
-
-Yoonkyoung Gong
+MIT — see [LICENSE](LICENSE).

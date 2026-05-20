@@ -1,0 +1,8 @@
+name: flutter_fixture_broken
+description: deliberately-broken flutter fixture for test-genie iterate loop tests
+version: 0.0.1
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter

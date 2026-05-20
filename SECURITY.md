@@ -85,20 +85,42 @@ baseline establishes safety primitives in [`src/security.ts`](src/security.ts):
   today only by the allow-listed `projectPath` boundary and by the user
   trusting their own MCP client.
 
-### Phase 5 plan
+### Phase 5 — Subprocess Audit (v3.0.0)
 
-Phase 5 will refactor every `execAsync(command, ...)` call site to
-`spawn(executable, argv[], opts)` with `validateCommand()` enforced at
-each boundary. Trackers:
+**Status: complete.** Every `execAsync(command, ...)` site identified in
+Phase 1 has been refactored to `spawn(executable, argv[], opts)` via the
+new `core/subprocess.ts` helpers. Audit summary:
 
-- iOS `xcodebuild`, `xcrun simctl`, `instruments` — argv refactor + scheme
-  validation regex.
-- Android `adb` shell payloads — argv refactor + package-name validation.
-- Flutter `flutter test`, `flutter drive` — argv refactor.
-- React Native `jest`, `detox` — argv refactor.
-- Web `playwright`, `cypress` — argv refactor.
+| Module | v2.x exec sites | v3.0.0 status |
+|---|---|---|
+| `src/platforms/ios/index.ts` | 14 | all → `runProcess` with `ID_ALLOWLIST` regex on `udid`, `scheme`, `device`, `bundleId`, `destination` |
+| `src/platforms/android/index.ts` | 28 | all → `runProcess`; `device`, `packageName`, `activity`, `module`, `testClass` validated |
+| `src/platforms/flutter/index.ts` | 13 | all → `runProcess` with `cwd`; `device`, `testPath`, `flavor`, `target` validated |
+| `src/platforms/react-native/index.ts` | 14 | all → `runProcess`; `configuration`, `testPath`, `device`, `testNamePattern` validated |
+| `src/platforms/web/index.ts` | 8 | all → `runProcess`; `browser`, `testPath` validated; lighthouse URL validated through `new URL()` |
+| `src/analyzers/performanceAnalyzer.ts` | 1 (unused) | dead import removed |
 
-Tracked in `MIGRATION.md` under "Deferred Phase 5 items".
+**Total:** ~78 unsafe call sites → 0. The `child_process.exec` import was
+removed from every module that previously held it.
+
+#### Before / after example
+
+```ts
+// v2.x — shell concatenation
+const command = `xcodebuild test -scheme "${scheme}" -destination '${destination}'`;
+await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
+
+// v3.0.0 — spawn with argv, validated inputs
+ensureMatches(scheme, ID_ALLOWLIST, 'scheme');
+if (destination) ensureMatches(destination, DESTINATION_ALLOWLIST, 'destination');
+await runProcess('xcodebuild', [
+  'test', '-scheme', scheme, '-destination', destination || '…default…',
+], { timeout, ignoreExitCode: true });
+```
+
+Tests in `tests/security.test.ts` lock in the allowlist behavior and the
+shell-metacharacter rejection so future refactors can't silently weaken
+this.
 
 ---
 

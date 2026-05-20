@@ -156,9 +156,11 @@ export const ALLOWED_EXECUTABLES: ReadonlySet<string> = new Set([
   // React Native / Node
   'node', 'npm', 'npx', 'yarn', 'pnpm', 'jest',
   // Web / browsers
-  'playwright', 'cypress', 'chrome', 'chromium',
+  'playwright', 'cypress', 'chrome', 'chromium', 'lighthouse', 'k6',
   // Generic
-  'git', 'sh', 'bash', 'curl', 'open', 'pkill',
+  'git', 'sh', 'bash', 'curl', 'open', 'pkill', 'where', 'which',
+  // Platform compilers (used by the strong-syntax-validator fallback chain)
+  'swiftc', 'kotlinc', 'javac',
 ]);
 
 const SHELL_METACHARS = /[;&|`$<>(){}[\]\\!*?~\n\r]/;

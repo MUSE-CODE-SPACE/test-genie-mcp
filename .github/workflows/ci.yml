@@ -29,10 +29,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check & build
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
         run: npm run build
 
-      - name: Run tests (if any)
-        run: npm test --if-present --silent || echo "No tests configured"
+      - name: Tests with coverage gate
+        run: npm run test:coverage
         env:
           CI: true
+          TEST_GENIE_LLM_PROVIDER: 'none'

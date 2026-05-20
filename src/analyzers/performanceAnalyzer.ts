@@ -5,12 +5,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { Platform } from '../types.js';
 import { analyzeTypeScript, CodeAnalysisResult } from './astAnalyzer.js';
-
-const execAsync = promisify(exec);
 
 // ============================================
 // Types

@@ -3,13 +3,12 @@
 // Playwright, Puppeteer, Cypress
 // ============================================
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TestResult, Platform } from '../../types.js';
+import { runProcess, ensureMatches } from '../../core/subprocess.js';
 
-const execAsync = promisify(exec);
+const TESTPATH_RE = /^[A-Za-z0-9._/-]+$/;
 
 export interface WebTestConfig {
   projectPath: string;
@@ -36,7 +35,7 @@ export async function listBrowsers(): Promise<BrowserInstance[]> {
 
   try {
     // Check Playwright browsers
-    const { stdout } = await execAsync('npx playwright --version');
+    const { stdout } = await runProcess('npx', ['playwright', '--version']);
     if (stdout) {
       browsers.push(
         { name: 'chromium', version: 'latest', executablePath: '' },
@@ -53,7 +52,7 @@ export async function listBrowsers(): Promise<BrowserInstance[]> {
 
 export async function installBrowsers(): Promise<boolean> {
   try {
-    await execAsync('npx playwright install', { timeout: 300000 });
+    await runProcess('npx', ['playwright', 'install'], { timeout: 300000 });
     return true;
   } catch {
     return false;
@@ -105,7 +104,11 @@ export async function runPlaywrightTests(config: WebTestConfig): Promise<{
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
+  ensureMatches(browser, /^[a-z]+$/, 'browser');
+  if (testPath) ensureMatches(testPath, TESTPATH_RE, 'testPath');
+
   const args: string[] = [
+    'playwright', 'test',
     `--project=${browser}`,
     `--workers=${workers}`,
     `--reporter=json`,
@@ -115,10 +118,13 @@ export async function runPlaywrightTests(config: WebTestConfig): Promise<{
   if (headless) args.push('--headed=false');
   if (testPath) args.push(testPath);
 
-  const command = `cd "${projectPath}" && PLAYWRIGHT_JSON_OUTPUT_NAME="${jsonReportPath}" npx playwright test ${args.join(' ')} 2>&1`;
-
   try {
-    const { stdout } = await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
+    const { stdout } = await runProcess('npx', args, {
+      cwd: projectPath,
+      timeout,
+      ignoreExitCode: true,
+      env: { PLAYWRIGHT_JSON_OUTPUT_NAME: jsonReportPath },
+    });
 
     const results = parsePlaywrightResults(jsonReportPath);
     const artifacts = collectPlaywrightArtifacts(outputDir);
@@ -135,7 +141,7 @@ export async function runPlaywrightTests(config: WebTestConfig): Promise<{
 
     return {
       success: false,
-      output: error.stdout || error.message,
+      output: error.message || String(error),
       results,
       artifacts,
     };
@@ -281,15 +287,17 @@ export async function runVisualTests(config: WebTestConfig & {
     timeout = 300000,
   } = config;
 
-  const args: string[] = ['--grep', '@visual'];
+  if (testPath) ensureMatches(testPath, TESTPATH_RE, 'testPath');
+
+  const args: string[] = ['playwright', 'test', '--grep', '@visual'];
 
   if (testPath) args.push(testPath);
   if (updateSnapshots) args.push('--update-snapshots');
 
-  const command = `cd "${projectPath}" && npx playwright test ${args.join(' ')} 2>&1`;
-
   try {
-    const { stdout } = await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
+    const { stdout } = await runProcess('npx', args, {
+      cwd: projectPath, timeout, ignoreExitCode: true,
+    });
 
     const comparisons = parseVisualTestResults(stdout, projectPath);
 
@@ -301,8 +309,8 @@ export async function runVisualTests(config: WebTestConfig & {
   } catch (error: any) {
     return {
       success: false,
-      output: error.stdout || error.message,
-      comparisons: parseVisualTestResults(error.stdout || '', projectPath),
+      output: error.message || String(error),
+      comparisons: parseVisualTestResults('', projectPath),
     };
   }
 }
@@ -383,8 +391,11 @@ export async function runCypressTests(config: WebTestConfig): Promise<{
     webkit: 'edge', // Cypress doesn't support webkit
   };
 
+  if (testPath) ensureMatches(testPath, TESTPATH_RE, 'testPath');
+  ensureMatches(browser, /^[a-z]+$/, 'browser');
+
   const args: string[] = [
-    'run',
+    'cypress', 'run',
     `--browser=${browserMap[browser] || 'chrome'}`,
     '--reporter=json',
   ];
@@ -392,14 +403,10 @@ export async function runCypressTests(config: WebTestConfig): Promise<{
   if (testPath) args.push(`--spec=${testPath}`);
   if (headless) args.push('--headless');
 
-  const command = `cd "${projectPath}" && npx cypress ${args.join(' ')} 2>&1`;
-
   try {
-    const { stdout } = await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
-
+    const { stdout } = await runProcess('npx', args, { cwd: projectPath, timeout, ignoreExitCode: true });
     const results = parseCypressOutput(stdout);
     const { videos, screenshots } = collectCypressArtifacts(projectPath);
-
     return {
       success: results.failed === 0,
       output: stdout,
@@ -408,12 +415,11 @@ export async function runCypressTests(config: WebTestConfig): Promise<{
       screenshots,
     };
   } catch (error: any) {
-    const results = parseCypressOutput(error.stdout || '');
+    const results = parseCypressOutput('');
     const { videos, screenshots } = collectCypressArtifacts(projectPath);
-
     return {
       success: false,
-      output: error.stdout || error.message,
+      output: error.message || String(error),
       results,
       videos,
       screenshots,
@@ -566,23 +572,29 @@ export async function runLighthouse(config: LighthouseConfig): Promise<{
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const args: string[] = [
-    url,
+  // URL is validated by URL constructor; throws ToolError if invalid.
+  try {
+    // eslint-disable-next-line no-new
+    new URL(url);
+  } catch {
+    throw new Error('Invalid URL for lighthouse');
+  }
+
+  const lighthouseArgs: string[] = [
+    'lighthouse', url,
     '--output=json',
     `--output-path=${reportPath}`,
     `--only-categories=${categories.join(',')}`,
     `--preset=${device}`,
-    '--chrome-flags="--headless"',
+    '--chrome-flags=--headless',
   ];
 
   if (!throttling) {
-    args.push('--throttling-method=provided');
+    lighthouseArgs.push('--throttling-method=provided');
   }
 
-  const command = `npx lighthouse ${args.join(' ')} 2>&1`;
-
   try {
-    await execAsync(command, { timeout: 120000, maxBuffer: 50 * 1024 * 1024 });
+    await runProcess('npx', lighthouseArgs, { timeout: 120000, ignoreExitCode: true });
 
     if (!fs.existsSync(reportPath)) {
       throw new Error('Report not generated');
@@ -685,7 +697,7 @@ export async function runAccessibilityTests(config: {
   fs.writeFileSync(scriptPath, testScript);
 
   try {
-    const { stdout } = await execAsync(`node "${scriptPath}"`, { timeout: 60000 });
+    const { stdout } = await runProcess('node', [scriptPath], { timeout: 60000 });
 
     const results = JSON.parse(stdout);
 
@@ -861,9 +873,11 @@ export async function runLoadTest(config: LoadTestConfig): Promise<{
   fs.writeFileSync(scriptPath, k6Script);
 
   try {
-    const { stdout } = await execAsync(`k6 run --out json=/tmp/k6-results.json "${scriptPath}"`, {
-      timeout: 600000,
-    });
+    const { stdout } = await runProcess(
+      'k6',
+      ['run', '--out', 'json=/tmp/k6-results.json', scriptPath],
+      { timeout: 600000, ignoreExitCode: true },
+    );
 
     // Parse k6 output
     const metrics = parseK6Output(stdout);

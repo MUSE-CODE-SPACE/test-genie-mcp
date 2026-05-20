@@ -17,12 +17,14 @@ import {
   StoredFix,
 } from '../types.js';
 
-const STORAGE_DIR = path.join(process.env.HOME || '~', '.test-genie-mcp');
+const STORAGE_DIR =
+  process.env.TEST_GENIE_STORAGE_DIR || path.join(process.env.HOME || '~', '.test-genie-mcp');
 const SCENARIOS_FILE = path.join(STORAGE_DIR, 'scenarios.json');
 const RESULTS_FILE = path.join(STORAGE_DIR, 'results.json');
 const FIXES_FILE = path.join(STORAGE_DIR, 'fixes.json');
 const PLANS_FILE = path.join(STORAGE_DIR, 'plans.json');
 const ISSUES_FILE = path.join(STORAGE_DIR, 'issues.json');
+const ITERATION_LOGS_FILE = path.join(STORAGE_DIR, 'iteration-logs.json');
 
 // Ensure storage directory exists
 function ensureStorageDir(): void {
@@ -296,6 +298,70 @@ export function getConfirmedFixes(projectPath?: string): StoredFix[] {
 }
 
 // ============================================
+// Iteration Logs Storage (Phase 5 iterate-fix loop)
+// ============================================
+/**
+ * Iterate-fix-test loop log entry. Persisted so users can introspect a loop
+ * after it completes (via `resource://test-genie/iteration-logs/{loopId}`)
+ * and so cancelled runs can be resumed via `resumeToken`.
+ */
+export interface StoredIterationLog {
+  loopId: string;
+  projectPath: string;
+  status: 'running' | 'success' | 'exhausted' | 'stuck' | 'cancelled' | 'error';
+  iterations: Array<{
+    n: number;
+    failingCount: number;
+    fixesApplied: number;
+    regressionsRolledBack: number;
+    passedAfter: number;
+    failedAfter: number;
+    durationMs: number;
+    notes?: string;
+  }>;
+  appliedFixIds: string[];
+  rolledBackFixIds: string[];
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  config: {
+    strategy: 'rule-based' | 'llm' | 'hybrid';
+    maxIterations: number;
+    acceptableThreshold: number;
+    autoApply: boolean;
+  };
+  resumeToken?: string;
+}
+
+export function saveIterationLog(log: StoredIterationLog): void {
+  const logs = readJson<StoredIterationLog[]>(ITERATION_LOGS_FILE, []);
+  const existing = logs.findIndex((l) => l.loopId === log.loopId);
+  if (existing >= 0) {
+    logs[existing] = log;
+  } else {
+    logs.push(log);
+  }
+  // Cap to most-recent 200 logs across all projects to avoid unbounded growth.
+  if (logs.length > 200) {
+    logs.splice(0, logs.length - 200);
+  }
+  writeJson(ITERATION_LOGS_FILE, logs);
+}
+
+export function getIterationLog(loopId: string): StoredIterationLog | undefined {
+  const logs = readJson<StoredIterationLog[]>(ITERATION_LOGS_FILE, []);
+  return logs.find((l) => l.loopId === loopId);
+}
+
+export function getIterationLogs(projectPath?: string): StoredIterationLog[] {
+  const logs = readJson<StoredIterationLog[]>(ITERATION_LOGS_FILE, []);
+  if (projectPath) {
+    return logs.filter((l) => l.projectPath === projectPath);
+  }
+  return logs;
+}
+
+// ============================================
 // Stats
 // ============================================
 export function getStats(projectPath?: string): {
@@ -325,6 +391,7 @@ export function clearAll(): void {
   if (fs.existsSync(FIXES_FILE)) fs.unlinkSync(FIXES_FILE);
   if (fs.existsSync(PLANS_FILE)) fs.unlinkSync(PLANS_FILE);
   if (fs.existsSync(ISSUES_FILE)) fs.unlinkSync(ISSUES_FILE);
+  if (fs.existsSync(ITERATION_LOGS_FILE)) fs.unlinkSync(ITERATION_LOGS_FILE);
 }
 
 export function clearProject(projectPath: string): void {

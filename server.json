@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MUSE-CODE-SPACE/test-genie",
-  "description": "AI-powered app test automation for iOS, Android, Flutter, React Native, Web",
+  "description": "Self-healing AI app test automation: scenarios → execution → detection → iterate-fix loop until green.",
   "repository": {
     "url": "https://github.com/MUSE-CODE-SPACE/test-genie-mcp",
     "source": "github"
   },
-  "version": "2.1.0",
+  "version": "3.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "test-genie-mcp",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "transport": {
         "type": "stdio"
       }

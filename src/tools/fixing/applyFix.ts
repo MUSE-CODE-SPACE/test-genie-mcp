@@ -11,6 +11,7 @@ import {
   TestResult,
 } from '../../types.js';
 import { getFixById, updateFixApplication, getConfirmedFixes } from '../../storage/index.js';
+import { validateSyntax as strongValidateSyntax } from '../../core/syntaxValidator.js';
 
 interface ApplyFixParams {
   fixId: string;
@@ -325,49 +326,17 @@ export function rollbackFix(fixId: string): {
   }
 }
 
+/**
+ * Backwards-compatible validation wrapper used by applyFix.
+ *
+ * v3.0.0 delegates to the strong validator (`core/syntaxValidator.ts`) which
+ * uses the TypeScript compiler API for TS/JS and platform compilers
+ * (swiftc / kotlinc / javac / dart) when available, with a brace-balance
+ * fallback. See `core/syntaxValidator.ts` for the full strategy list.
+ */
 function validateSyntax(filePath: string, content: string): { valid: boolean; error?: string } {
-  const ext = path.extname(filePath);
-
-  try {
-    // Basic syntax validation based on file type
-    switch (ext) {
-      case '.js':
-      case '.jsx':
-      case '.ts':
-      case '.tsx':
-        // Check for balanced braces
-        const openBraces = (content.match(/\{/g) || []).length;
-        const closeBraces = (content.match(/\}/g) || []).length;
-        if (openBraces !== closeBraces) {
-          return { valid: false, error: 'Unbalanced braces' };
-        }
-
-        // Check for balanced parentheses
-        const openParens = (content.match(/\(/g) || []).length;
-        const closeParens = (content.match(/\)/g) || []).length;
-        if (openParens !== closeParens) {
-          return { valid: false, error: 'Unbalanced parentheses' };
-        }
-        break;
-
-      case '.swift':
-        // Similar checks for Swift
-        break;
-
-      case '.kt':
-      case '.java':
-        // Similar checks for Kotlin/Java
-        break;
-
-      case '.dart':
-        // Similar checks for Dart
-        break;
-    }
-
-    return { valid: true };
-  } catch (error) {
-    return { valid: false, error: error instanceof Error ? error.message : String(error) };
-  }
+  const result = strongValidateSyntax(filePath, content);
+  return { valid: result.valid, error: result.error };
 }
 
 function generateUnifiedDiff(original: string, modified: string, filename: string): string {

@@ -1,15 +1,22 @@
 // ============================================
 // iOS Test Platform Integration
 // XCTest, XCUITest, Instruments
+//
+// v3.0.0: subprocess calls go through `core/subprocess.runProcess`
+// (spawn + argv array + executable allowlist + validated user input).
+// No more string concatenation into shell commands.
 // ============================================
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TestResult, StepResult, Platform } from '../../types.js';
-
-const execAsync = promisify(exec);
+import {
+  runProcess,
+  spawnBackground,
+  ensureMatches,
+  ID_ALLOWLIST,
+  DESTINATION_ALLOWLIST,
+} from '../../core/subprocess.js';
 
 export interface IOSDevice {
   udid: string;
@@ -33,7 +40,7 @@ export interface IOSTestConfig {
 // ============================================
 export async function listSimulators(): Promise<IOSDevice[]> {
   try {
-    const { stdout } = await execAsync('xcrun simctl list devices -j');
+    const { stdout } = await runProcess('xcrun', ['simctl', 'list', 'devices', '-j']);
     const data = JSON.parse(stdout);
     const devices: IOSDevice[] = [];
 
@@ -63,17 +70,18 @@ export async function listSimulators(): Promise<IOSDevice[]> {
 
 export async function bootSimulator(udid: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl boot ${udid}`);
+    ensureMatches(udid, ID_ALLOWLIST, 'udid');
+    await runProcess('xcrun', ['simctl', 'boot', udid], { ignoreExitCode: true });
     return true;
-  } catch (error) {
-    // May already be booted
+  } catch {
     return false;
   }
 }
 
 export async function shutdownSimulator(udid: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl shutdown ${udid}`);
+    ensureMatches(udid, ID_ALLOWLIST, 'udid');
+    await runProcess('xcrun', ['simctl', 'shutdown', udid], { ignoreExitCode: true });
     return true;
   } catch {
     return false;
@@ -91,52 +99,41 @@ export async function runXCTest(config: IOSTestConfig): Promise<{
 }> {
   const { projectPath, scheme, destination, testPlan, timeout = 600000 } = config;
 
-  // Find xcodeproj or xcworkspace
+  // Validate user-controlled inputs.
+  ensureMatches(scheme, ID_ALLOWLIST, 'scheme');
+  if (destination) ensureMatches(destination, DESTINATION_ALLOWLIST, 'destination');
+  if (testPlan) ensureMatches(testPlan, ID_ALLOWLIST, 'testPlan');
+
   const files = fs.readdirSync(projectPath);
-  const workspace = files.find(f => f.endsWith('.xcworkspace'));
-  const project = files.find(f => f.endsWith('.xcodeproj'));
+  const workspace = files.find((f) => f.endsWith('.xcworkspace'));
+  const project = files.find((f) => f.endsWith('.xcodeproj'));
 
-  const projectArg = workspace
-    ? `-workspace "${path.join(projectPath, workspace)}"`
-    : `-project "${path.join(projectPath, project || '')}"`;
-
-  const destinationArg = destination || 'platform=iOS Simulator,name=iPhone 15';
-  const testPlanArg = testPlan ? `-testPlan ${testPlan}` : '';
-
-  const command = `xcodebuild test ${projectArg} -scheme "${scheme}" -destination '${destinationArg}' ${testPlanArg} -resultBundlePath /tmp/TestResults.xcresult 2>&1`;
+  const args: string[] = ['test'];
+  if (workspace) {
+    args.push('-workspace', path.join(projectPath, workspace));
+  } else if (project) {
+    args.push('-project', path.join(projectPath, project));
+  }
+  args.push('-scheme', scheme);
+  args.push('-destination', destination || 'platform=iOS Simulator,name=iPhone 15');
+  if (testPlan) args.push('-testPlan', testPlan);
+  args.push('-resultBundlePath', '/tmp/TestResults.xcresult');
 
   try {
-    const { stdout } = await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
-
-    // Parse test results
+    const { stdout } = await runProcess('xcodebuild', args, { timeout, ignoreExitCode: true });
     const tests = parseXCTestOutput(stdout);
-    const allPassed = tests.every(t => t.passed);
-
-    // Get coverage if available
+    const allPassed = tests.every((t) => t.passed);
     const coverage = await getXCTestCoverage('/tmp/TestResults.xcresult');
-
-    return {
-      success: allPassed,
-      output: stdout,
-      tests,
-      coverage,
-    };
+    return { success: allPassed, output: stdout, tests, coverage };
   } catch (error: any) {
-    return {
-      success: false,
-      output: error.stdout || error.message,
-      tests: [],
-    };
+    return { success: false, output: error.message || String(error), tests: [] };
   }
 }
 
 function parseXCTestOutput(output: string): { name: string; passed: boolean; duration: number }[] {
   const tests: { name: string; passed: boolean; duration: number }[] = [];
-
-  // Parse test results from xcodebuild output
   const testResultRegex = /Test Case '-\[(\S+) (\S+)\]' (passed|failed) \((\d+\.\d+) seconds\)/g;
   let match;
-
   while ((match = testResultRegex.exec(output)) !== null) {
     tests.push({
       name: `${match[1]}.${match[2]}`,
@@ -144,13 +141,14 @@ function parseXCTestOutput(output: string): { name: string; passed: boolean; dur
       duration: parseFloat(match[4] || '0') * 1000,
     });
   }
-
   return tests;
 }
 
 async function getXCTestCoverage(resultBundlePath: string): Promise<number | undefined> {
   try {
-    const { stdout } = await execAsync(`xcrun xccov view --report --json ${resultBundlePath}`);
+    const { stdout } = await runProcess('xcrun', [
+      'xccov', 'view', '--report', '--json', resultBundlePath,
+    ]);
     const report = JSON.parse(stdout);
     return report.lineCoverage ? Math.round(report.lineCoverage * 100) : undefined;
   } catch {
@@ -171,37 +169,34 @@ export async function runXCUITest(config: IOSTestConfig & {
   duration: number;
 }> {
   const { projectPath, scheme, destination, testClass, testMethod, timeout = 600000 } = config;
+  ensureMatches(scheme, ID_ALLOWLIST, 'scheme');
+  if (destination) ensureMatches(destination, DESTINATION_ALLOWLIST, 'destination');
+  if (testClass) ensureMatches(testClass, ID_ALLOWLIST, 'testClass');
+  if (testMethod) ensureMatches(testMethod, ID_ALLOWLIST, 'testMethod');
 
   const files = fs.readdirSync(projectPath);
-  const workspace = files.find(f => f.endsWith('.xcworkspace'));
-  const project = files.find(f => f.endsWith('.xcodeproj'));
+  const workspace = files.find((f) => f.endsWith('.xcworkspace'));
+  const project = files.find((f) => f.endsWith('.xcodeproj'));
 
-  const projectArg = workspace
-    ? `-workspace "${path.join(projectPath, workspace)}"`
-    : `-project "${path.join(projectPath, project || '')}"`;
-
-  const destinationArg = destination || 'platform=iOS Simulator,name=iPhone 15';
-
-  let testArg = '';
+  const args: string[] = ['test'];
+  if (workspace) args.push('-workspace', path.join(projectPath, workspace));
+  else if (project) args.push('-project', path.join(projectPath, project));
+  args.push('-scheme', scheme);
+  args.push('-destination', destination || 'platform=iOS Simulator,name=iPhone 15');
   if (testClass && testMethod) {
-    testArg = `-only-testing:${scheme}UITests/${testClass}/${testMethod}`;
+    args.push(`-only-testing:${scheme}UITests/${testClass}/${testMethod}`);
   } else if (testClass) {
-    testArg = `-only-testing:${scheme}UITests/${testClass}`;
+    args.push(`-only-testing:${scheme}UITests/${testClass}`);
   }
+  args.push('-resultBundlePath', '/tmp/UITestResults.xcresult');
 
   const screenshotDir = `/tmp/xcuitest-screenshots-${Date.now()}`;
   fs.mkdirSync(screenshotDir, { recursive: true });
 
-  const command = `xcodebuild test ${projectArg} -scheme "${scheme}" -destination '${destinationArg}' ${testArg} -resultBundlePath /tmp/UITestResults.xcresult 2>&1`;
-
   const startTime = Date.now();
-
   try {
-    const { stdout } = await execAsync(command, { timeout, maxBuffer: 50 * 1024 * 1024 });
-
-    // Extract screenshots from result bundle
+    const { stdout } = await runProcess('xcodebuild', args, { timeout, ignoreExitCode: true });
     const screenshots = await extractScreenshots('/tmp/UITestResults.xcresult', screenshotDir);
-
     return {
       success: !stdout.includes('** TEST FAILED **'),
       output: stdout,
@@ -211,7 +206,7 @@ export async function runXCUITest(config: IOSTestConfig & {
   } catch (error: any) {
     return {
       success: false,
-      output: error.stdout || error.message,
+      output: error.message || String(error),
       screenshots: [],
       duration: Date.now() - startTime,
     };
@@ -219,19 +214,12 @@ export async function runXCUITest(config: IOSTestConfig & {
 }
 
 async function extractScreenshots(resultBundlePath: string, outputDir: string): Promise<string[]> {
-  const screenshots: string[] = [];
-
   try {
-    // List attachments
-    const { stdout } = await execAsync(`xcrun xcresulttool get --path ${resultBundlePath} --format json`);
-    const result = JSON.parse(stdout);
-
-    // Extract screenshot attachments
-    // This is a simplified version - actual implementation would parse the xcresult structure
-
-    return screenshots;
+    await runProcess('xcrun', ['xcresulttool', 'get', '--path', resultBundlePath, '--format', 'json']);
+    // Simplified — actual implementation would parse the xcresult structure.
+    return [];
   } catch {
-    return screenshots;
+    return [];
   }
 }
 
@@ -240,75 +228,70 @@ async function extractScreenshots(resultBundlePath: string, outputDir: string): 
 // ============================================
 export interface InstrumentsProfile {
   type: 'time-profiler' | 'allocations' | 'leaks' | 'activity-monitor' | 'core-animation';
-  duration: number; // in seconds
+  duration: number;
   processName?: string;
 }
 
 export async function runInstruments(
   device: string,
   app: string,
-  profile: InstrumentsProfile
+  profile: InstrumentsProfile,
 ): Promise<{
   success: boolean;
   tracePath: string;
   metrics: Record<string, number>;
   leaks?: string[];
 }> {
-  const tracePath = `/tmp/instruments-${Date.now()}.trace`;
+  ensureMatches(device, ID_ALLOWLIST, 'device');
+  // `app` may be a bundle path - validate it's a known-looking path string.
+  ensureMatches(app.replace(/\//g, '_'), /^[A-Za-z0-9._-]+$/, 'app');
 
+  const tracePath = `/tmp/instruments-${Date.now()}.trace`;
   const templateMap: Record<string, string> = {
     'time-profiler': 'Time Profiler',
-    'allocations': 'Allocations',
-    'leaks': 'Leaks',
+    allocations: 'Allocations',
+    leaks: 'Leaks',
     'activity-monitor': 'Activity Monitor',
     'core-animation': 'Core Animation',
   };
-
   const template = templateMap[profile.type] || 'Time Profiler';
 
-  const command = `xcrun xctrace record --device ${device} --template "${template}" --output ${tracePath} --time-limit ${profile.duration}s --attach "${app}" 2>&1`;
-
   try {
-    await execAsync(command, { timeout: (profile.duration + 30) * 1000 });
-
-    // Parse trace results
+    await runProcess(
+      'xcrun',
+      [
+        'xctrace', 'record',
+        '--device', device,
+        '--template', template,
+        '--output', tracePath,
+        '--time-limit', `${profile.duration}s`,
+        '--attach', app,
+      ],
+      { timeout: (profile.duration + 30) * 1000, ignoreExitCode: true },
+    );
     const metrics = await parseTraceResults(tracePath, profile.type);
     const leaks = profile.type === 'leaks' ? await extractLeaks(tracePath) : undefined;
-
-    return {
-      success: true,
-      tracePath,
-      metrics,
-      leaks,
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      tracePath,
-      metrics: {},
-    };
+    return { success: true, tracePath, metrics, leaks };
+  } catch {
+    return { success: false, tracePath, metrics: {} };
   }
 }
 
 async function parseTraceResults(tracePath: string, type: string): Promise<Record<string, number>> {
   const metrics: Record<string, number> = {};
-
   try {
-    const { stdout } = await execAsync(`xcrun xctrace export --input ${tracePath} --output /tmp/trace-export --xpath '//*'`);
-
-    // Parse based on profile type
+    await runProcess('xcrun', [
+      'xctrace', 'export', '--input', tracePath, '--output', '/tmp/trace-export', '--xpath', '//*',
+    ]);
     switch (type) {
       case 'allocations':
-        // Parse memory allocations
         metrics['peakMemoryMB'] = 0;
         metrics['totalAllocations'] = 0;
         break;
       case 'time-profiler':
-        // Parse CPU time
         metrics['cpuUsagePercent'] = 0;
         break;
       case 'core-animation':
-        // Parse FPS
         metrics['averageFPS'] = 0;
         metrics['droppedFrames'] = 0;
         break;
@@ -316,17 +299,13 @@ async function parseTraceResults(tracePath: string, type: string): Promise<Recor
   } catch {
     // Return empty metrics
   }
-
   return metrics;
 }
 
 async function extractLeaks(tracePath: string): Promise<string[]> {
   const leaks: string[] = [];
-
   try {
-    const { stdout } = await execAsync(`leaks --traceFile=${tracePath} 2>&1`);
-
-    // Parse leaks output
+    const { stdout } = await runProcess('leaks', [`--traceFile=${tracePath}`], { ignoreExitCode: true });
     const leakRegex = /Leak: (\S+)/g;
     let match;
     while ((match = leakRegex.exec(stdout)) !== null) {
@@ -335,7 +314,6 @@ async function extractLeaks(tracePath: string): Promise<string[]> {
   } catch {
     // No leaks or error
   }
-
   return leaks;
 }
 
@@ -347,33 +325,21 @@ export async function runSwiftTests(projectPath: string): Promise<{
   output: string;
   tests: { name: string; passed: boolean }[];
 }> {
-  const command = `cd "${projectPath}" && swift test 2>&1`;
-
   try {
-    const { stdout } = await execAsync(command, { timeout: 300000 });
-
+    const { stdout } = await runProcess(
+      'sh',
+      ['-c', 'swift test 2>&1'],
+      { cwd: projectPath, timeout: 300000, ignoreExitCode: true, skipAllowlist: true },
+    );
     const tests: { name: string; passed: boolean }[] = [];
     const testRegex = /Test Case '(\S+)' (passed|failed)/g;
     let match;
-
     while ((match = testRegex.exec(stdout)) !== null) {
-      tests.push({
-        name: match[1] || '',
-        passed: match[2] === 'passed',
-      });
+      tests.push({ name: match[1] || '', passed: match[2] === 'passed' });
     }
-
-    return {
-      success: !stdout.includes('FAILED'),
-      output: stdout,
-      tests,
-    };
+    return { success: !stdout.includes('FAILED'), output: stdout, tests };
   } catch (error: any) {
-    return {
-      success: false,
-      output: error.message,
-      tests: [],
-    };
+    return { success: false, output: error.message || String(error), tests: [] };
   }
 }
 
@@ -382,7 +348,8 @@ export async function runSwiftTests(projectPath: string): Promise<{
 // ============================================
 export async function installApp(device: string, appPath: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl install ${device} "${appPath}"`);
+    ensureMatches(device, ID_ALLOWLIST, 'device');
+    await runProcess('xcrun', ['simctl', 'install', device, appPath]);
     return true;
   } catch {
     return false;
@@ -391,7 +358,9 @@ export async function installApp(device: string, appPath: string): Promise<boole
 
 export async function launchApp(device: string, bundleId: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl launch ${device} ${bundleId}`);
+    ensureMatches(device, ID_ALLOWLIST, 'device');
+    ensureMatches(bundleId, /^[A-Za-z0-9._-]+$/, 'bundleId');
+    await runProcess('xcrun', ['simctl', 'launch', device, bundleId]);
     return true;
   } catch {
     return false;
@@ -400,7 +369,9 @@ export async function launchApp(device: string, bundleId: string): Promise<boole
 
 export async function terminateApp(device: string, bundleId: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl terminate ${device} ${bundleId}`);
+    ensureMatches(device, ID_ALLOWLIST, 'device');
+    ensureMatches(bundleId, /^[A-Za-z0-9._-]+$/, 'bundleId');
+    await runProcess('xcrun', ['simctl', 'terminate', device, bundleId]);
     return true;
   } catch {
     return false;
@@ -412,20 +383,24 @@ export async function terminateApp(device: string, bundleId: string): Promise<bo
 // ============================================
 export async function takeScreenshot(device: string, outputPath: string): Promise<boolean> {
   try {
-    await execAsync(`xcrun simctl io ${device} screenshot "${outputPath}"`);
+    ensureMatches(device, ID_ALLOWLIST, 'device');
+    await runProcess('xcrun', ['simctl', 'io', device, 'screenshot', outputPath]);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function startRecording(device: string, outputPath: string): Promise<{ stop: () => Promise<void> }> {
-  const process = exec(`xcrun simctl io ${device} recordVideo "${outputPath}"`);
-
+export async function startRecording(
+  device: string,
+  outputPath: string,
+): Promise<{ stop: () => Promise<void> }> {
+  ensureMatches(device, ID_ALLOWLIST, 'device');
+  const child = spawnBackground('xcrun', ['simctl', 'io', device, 'recordVideo', outputPath]);
   return {
     stop: async () => {
-      process.kill('SIGINT');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      child.kill('SIGINT');
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     },
   };
 }
