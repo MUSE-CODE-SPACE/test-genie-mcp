@@ -88,8 +88,8 @@ describe('McpServer factory', () => {
     expect(counts.toolNames).toHaveLength(23);
   });
 
-  it('reports the v3.1.0 server name + version', () => {
+  it('reports the v3.1.1 server name + version', () => {
     expect(SERVER_NAME).toBe('test-genie-mcp');
-    expect(SERVER_VERSION).toBe('3.1.0');
+    expect(SERVER_VERSION).toBe('3.1.1');
   });
 });

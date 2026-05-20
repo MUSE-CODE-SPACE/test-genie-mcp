@@ -9,7 +9,7 @@ Self-healing test automation for iOS, Android, Flutter, React Native and Web app
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-1.29-blue)](https://modelcontextprotocol.io)
 
-> **v3.1.0 — vibe-check.** One MCP call, ~30 seconds: race conditions + security issues + memory leaks + logic errors + perf smells, prioritized. Stays on your machine, no telemetry. Plug into [v3.0.0](#how-the-iterate-fix-loop-works)'s iterate-fix loop to actually apply the fixes.
+> **v3.1.1 — vibe-check + honest auto-fix.** One MCP call, ~30 seconds: race conditions + security issues + memory leaks + logic errors + perf smells, prioritized. Stays on your machine, no telemetry. Pass `autoFix: true` for the small, safe mechanical fixes (weak-hash, simple `Math.random` assignment) — backup + syntax-validate + rollback-on-syntax-fail. For test-verified application of harder fixes, use [v3.0.0](#how-the-iterate-fix-loop-works)'s iterate-fix loop.
 
 ---
 
@@ -60,7 +60,7 @@ Claude calls `diagnose_project` under the hood. ~30 seconds later you see:
 3. Use run_iterative_fix_loop for test-driven verification of each fix.
 ```
 
-If any finding is `autoFixable: true`, Claude offers to apply it via the existing `run_iterative_fix_loop`.
+If any finding is `autoFixable: true` and is at `high`/`critical` severity, the `diagnose_project` call accepts `autoFix: true` to apply the mechanical replacement directly (with backup + syntax validation — see [SAFETY.md](SAFETY.md) for the exact guards). The v3.1.1 honest scope is narrow: weak hash (`createHash('md5'|'sha1')` → `createHash('sha256')`) and standalone `Math.random()` in security-sensitive files. For broader/structural fixes (race conditions, eval, exec injection) run `run_iterative_fix_loop` separately — it re-runs tests and auto-rolls-back on regression.
 
 ---
 
@@ -72,6 +72,8 @@ The bottleneck in mobile + cross-platform test automation isn't writing tests �
 failing test → analyzer flags issue → fix proposed → dry-run + syntax check →
 applied with backup → affected tests re-run → regression check → loop or stop
 ```
+
+This full loop is the `run_iterative_fix_loop` tool. The `diagnose_project autoFix: true` path in v3.1.1 covers a strict subset — backup + dry-run + syntax-validate + apply, **without** re-running tests (so no test-regression rollback in that path). Use the right tool for the job — and see [SAFETY.md](SAFETY.md) for the exact guards on each.
 
 Other tools (Detox, Maestro, Playwright, `xcodebuild test`) run tests. test-genie **runs tests *and* drives the fix until the bar is met or it can no longer make progress** — without you scrubbing through stack traces.
 
@@ -126,17 +128,23 @@ Re-call with `autoApply: true` (or `resumeToken: "f8b3…"`) to actually patch t
 
 ## Real use cases
 
+> The flows below describe the **`run_iterative_fix_loop` path** (v3.0
+> headline) — full detect → propose → dry-run → apply-with-backup →
+> re-run-tests → rollback-on-regression. The `diagnose_project autoFix`
+> path in v3.1.1 is the narrower mechanical-replacement-only path; see
+> [SAFETY.md](SAFETY.md) §4 for what that one actually touches.
+
 ### 1. React Native memory-leak self-healing
 
-A team adds `setInterval(...)` in a `useEffect` and forgets cleanup. test-genie's `detect_memory_leaks` flags it, `suggest_fixes` proposes `return () => clearInterval(id)`, dry-runs the patch through the TS compiler, applies it with a backup, re-runs only the affected snapshot test, confirms 100% pass, stops. **Before:** 1 failing snapshot. **After:** 0 failing, 1 fix applied, 1 backup at `.test-genie-backups/`.
+A team adds `setInterval(...)` in a `useEffect` and forgets cleanup. test-genie's `detect_memory_leaks` flags it, `suggest_fixes` proposes `return () => clearInterval(id)` (`src/tools/fixing/suggestFixes.ts:169-179`), the loop dry-runs the patch through the TS compiler, applies with backup, re-runs only the affected snapshot test, confirms 100% pass, stops. **Before:** 1 failing snapshot. **After:** 0 failing, 1 fix applied, 1 backup at `.test-genie-backups/`.
 
 ### 2. Flutter widget `dispose()` automation
 
-`AnimationController` left undisposed. test-genie sees the missing `dispose()` override, generates a Dart `@override dispose() { controller.dispose(); super.dispose(); }` block, runs `dart analyze` on the patched file, applies, re-runs `flutter test`, converges.
+`AnimationController` left undisposed. test-genie sees the missing `dispose()` override, generates a Dart `@override dispose() { controller.dispose(); super.dispose(); }` block (`suggestFixes.ts:214-217`), runs `dart analyze` on the patched file, applies, re-runs `flutter test`, converges.
 
 ### 3. iOS retain-cycle (closure capture)
 
-`self.timer = Timer.scheduledTimer(...) { _ in self.tick() }` — rule-based detector flags closure self-capture, fixer rewrites to `[weak self] _ in guard let self = self else { return }; self.tick()`. If `swiftc` is on PATH the syntax check is real; otherwise test-genie reports "downgraded validation" so you know.
+`self.timer = Timer.scheduledTimer(...) { _ in self.tick() }` — rule-based detector flags closure self-capture, fixer rewrites to `[weak self] _ in guard let self = self else { return }; self.tick()` (`suggestFixes.ts:239-242`). If `swiftc` is on PATH the syntax check is real; otherwise test-genie reports "downgraded validation" so you know.
 
 ---
 
@@ -216,11 +224,11 @@ Plus 4 resources (`test-genie://iteration-logs`, `…/test-history/{path}`, `…
 
 Race conditions (`detect_race_conditions` / `diagnose_project`):
 
-| Pattern | Language | Severity | Auto-fixable |
+| Pattern | Language | Severity | Auto-fixable (v3.1.1) |
 |---|---|---|---|
-| `useState` setter called after `await` without mount guard | TS/JS/React | high | no |
-| `useEffect` with async fetch, no AbortController/cleanup | TS/JS/React | high | yes |
-| `arr.forEach(async ...)` (silent fire-and-forget) | TS/JS | medium | yes |
+| `useState` setter called after `await` without mount guard | TS/JS/React | high | no (structural) |
+| `useEffect` with async fetch, no AbortController/cleanup | TS/JS/React | high | no (structural) |
+| `arr.forEach(async ...)` (silent fire-and-forget) | TS/JS | medium | no (ordering-sensitive) |
 | Adjacent fetches without `Promise.all` / sequencing | TS/JS | medium | no |
 | TOCTOU: `existsSync` then `readFileSync` without lock | TS/JS Node | medium | no |
 | Non-atomic counter increment in async context | TS/JS | low | no |
@@ -230,24 +238,37 @@ Race conditions (`detect_race_conditions` / `diagnose_project`):
 | `Flow` collected without `flowOn` | Kotlin | low | no |
 | Goroutine + shared map without `sync.Mutex` | Go | high | no |
 
+> v3.1.1 honesty audit: `useEffect-no-abort` and `forEach-await` were
+> previously advertised as auto-fixable. They are not — wrapping with
+> `AbortController` or rewriting to `Promise.all(arr.map(...))` changes
+> behavior we can't verify statically. They are now report-only. See
+> [SAFETY.md](SAFETY.md).
+
 Security (`detect_security_issues` / `diagnose_project`):
 
-| Pattern | Severity | CWE | Auto-fixable |
+| Pattern | Severity | CWE | Auto-fixable (v3.1.1) |
 |---|---|---|---|
 | Hardcoded AWS / Stripe / GitHub / Google / Slack token | critical / high | CWE-798 | no (rotate) |
 | Hardcoded JWT secret literal | high | CWE-798 | no |
 | API token in URL query string | high | CWE-200 | no |
-| `.env` file present but not gitignored | high | CWE-538 | yes |
+| `.env` file present but not gitignored | high | CWE-538 | no (rotation must follow) |
 | SQL string concat with `req.params` / `req.body` | critical | CWE-89 | no |
 | `innerHTML` / `dangerouslySetInnerHTML` with dynamic value | high | CWE-79 | no |
 | `eval()` / `new Function()` with non-literal | critical | CWE-95 | no |
-| `Math.random()` in security-sensitive file | high | CWE-338 | yes |
-| `createHash('md5'\|'sha1')` for password/token hashing | medium | CWE-327 | yes |
+| `Math.random()` in security-sensitive file, **standalone assignment** | high | CWE-338 | **yes** (`crypto.randomInt`) |
+| `Math.random()` mixed into arithmetic | high | CWE-338 | no (semantic) |
+| `createHash('md5'\|'sha1')` in security-keyword file | high | CWE-327 | **yes** (`'sha256'`) |
+| `createHash('md5'\|'sha1')` elsewhere | medium | CWE-327 | no (below severity floor) |
 | `child_process.exec` with user-input template literal | critical | CWE-78 | no |
 | `fetch(req.query.url)` (SSRF) | high | CWE-918 | no |
 | CORS `*` origin + `Allow-Credentials: true` | high | CWE-942 | no |
 | Cookie set without `httpOnly` / `secure` / `sameSite` | low | CWE-1004 | no |
-| `yaml.load` without safe schema | medium | CWE-502 | yes |
+| `yaml.load` without safe schema | medium | CWE-502 | no |
+
+> v3.1.1 honesty audit: `.env`/`Math.random` (general)/`yaml.load` were
+> previously advertised as auto-fixable. They were either too risky to
+> rewrite blindly or no strategy shipped — flipped to report-only. See
+> [SAFETY.md](SAFETY.md) §5.
 
 ---
 
@@ -295,10 +316,16 @@ If your goal is "before I commit, what's broken?", vibe-check wins on latency. I
 |---|---|---|---|---|
 | Runs E2E / unit tests | ✅ (via Jest/Detox/etc.) | ✅ | ✅ | ✅ |
 | Detects code issues | ✅ rule + LLM | ❌ | ❌ | ❌ |
-| **Iterative fix loop** | **✅** | ❌ | ❌ | ❌ |
-| Auto-rollback on regression | ✅ | ❌ | ❌ | ❌ |
+| **Iterative fix loop** | **✅** (`run_iterative_fix_loop`) | ❌ | ❌ | ❌ |
+| Auto-rollback on test regression | ✅ inside `run_iterative_fix_loop` only | ❌ | ❌ | ❌ |
+| Auto-rollback on syntax failure | ✅ all apply paths | ❌ | ❌ | ❌ |
 | MCP-native (talks to Claude / agents) | ✅ | ❌ | ❌ | ❌ |
 | Multi-platform | iOS+Android+Web+Flutter+RN | iOS+Android | iOS+Android | iOS only |
+
+> Scope note: `diagnose_project autoFix: true` rolls back on syntax-validate
+> failure (`applyFix.ts:185-202`) but does **not** re-run tests, so it
+> cannot detect test regressions. For test-driven rollback use
+> `run_iterative_fix_loop`. See [SAFETY.md](SAFETY.md) §2.4.
 
 test-genie *uses* tools like Jest, Detox, and `xcodebuild test` under the hood — it sits at the orchestration layer, not the test-runner layer.
 

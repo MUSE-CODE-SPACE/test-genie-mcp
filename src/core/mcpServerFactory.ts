@@ -23,7 +23,7 @@ import { PROMPT_DESCRIPTORS, findPrompt } from './prompts.js';
 import { z } from 'zod';
 
 export const SERVER_NAME = 'test-genie-mcp';
-export const SERVER_VERSION = '3.1.0';
+export const SERVER_VERSION = '3.1.1';
 
 export function createMcpServer(): McpServer {
   const server = new McpServer(

@@ -18,6 +18,7 @@ import { analyzeSecurity, SecurityFinding } from '../../analyzers/securityAnalyz
 import { detectMemoryLeaks } from '../detection/detectMemoryLeaks.js';
 import { detectLogicErrors } from '../detection/detectLogicErrors.js';
 import { analyzePerformance } from '../../analyzers/performanceAnalyzer.js';
+import { runDiagnoseAutoFix, AutoFixResult } from './diagnoseAutoFix.js';
 
 export type Check = 'race-conditions' | 'security' | 'memory-leaks' | 'logic-errors' | 'performance';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
@@ -70,6 +71,11 @@ export interface DiagnoseProjectResult {
   checksTimedOut: Check[];
   suggestedNextCommands: string[];
   markdownSummary: string;
+  /**
+   * Present only when `autoFix: true` was passed. Reports what was
+   * actually applied / skipped / errored. See diagnoseAutoFix.ts.
+   */
+  autoFixResult?: AutoFixResult;
 }
 
 const DEFAULT_CHECKS: Check[] = ['race-conditions', 'security', 'memory-leaks', 'logic-errors', 'performance'];
@@ -289,9 +295,33 @@ export async function diagnoseProject(params: DiagnoseProjectParams): Promise<Di
 
   const topFindings = filtered.slice(0, 5);
 
+  // ----------------------------------------------------------------------
+  // autoFix wiring (v3.1.1 — real, not a no-op).
+  //
+  // Only runs when autoFix:true is explicitly passed. Operates on the
+  // already-filtered findings list. See diagnoseAutoFix.ts for the
+  // safety guards (severity floor, hard caps, excluded paths, etc.).
+  // ----------------------------------------------------------------------
+  let autoFixResult: AutoFixResult | undefined;
+  if (params.autoFix === true) {
+    autoFixResult = runDiagnoseAutoFix(filtered, projectPath);
+  }
+
+  // Honest signal: a fix has a real strategy only if its analyzer flagged
+  // it AND we have an implementation. We don't promise things we can't do.
+  const hasRealAutoFixCandidate = filtered.some(
+    (f) =>
+      f.autoFixable === true &&
+      (SEVERITY_ORDER[f.severity] >= SEVERITY_ORDER['high']) &&
+      // Currently implemented strategies — keep in sync with diagnoseAutoFix.ts.
+      (f.subType === 'crypto'),
+  );
+
   const suggestedNext: string[] = [];
-  if (topFindings.some((t) => t.autoFixable)) {
-    suggestedNext.push('Run `diagnose_project` with `autoFix: true` to apply high-confidence fixes automatically');
+  if (!autoFixResult && hasRealAutoFixCandidate) {
+    suggestedNext.push(
+      'Run `diagnose_project` with `autoFix: true` to apply the safe mechanical fixes (weak-hash + simple Math.random). Backups are written to `.test-genie-backups/`.',
+    );
   }
   if (filtered.length > 5) {
     suggestedNext.push('Use `output: "detailed"` to see the full finding list');
@@ -312,6 +342,8 @@ export async function diagnoseProject(params: DiagnoseProjectParams): Promise<Di
     checksTimedOut,
     totalFindings: filtered.length,
     output,
+    autoFixResult,
+    hasRealAutoFixCandidate,
   });
 
   return {
@@ -328,6 +360,7 @@ export async function diagnoseProject(params: DiagnoseProjectParams): Promise<Di
     checksTimedOut,
     suggestedNextCommands: suggestedNext,
     markdownSummary,
+    autoFixResult,
   };
 }
 
@@ -342,6 +375,8 @@ function buildMarkdownSummary(args: {
   checksTimedOut: Check[];
   totalFindings: number;
   output: 'summary' | 'detailed' | 'json';
+  autoFixResult?: AutoFixResult;
+  hasRealAutoFixCandidate: boolean;
 }): string {
   const lines: string[] = [];
   lines.push(`# vibe-check report`);
@@ -357,6 +392,38 @@ function buildMarkdownSummary(args: {
     lines.push(`- **Checks timed out:** ${args.checksTimedOut.join(', ')}`);
   }
   lines.push('');
+
+  // Honest autoFix block — only printed when autoFix actually ran.
+  if (args.autoFixResult) {
+    const r = args.autoFixResult;
+    lines.push(`## Auto-fix result`);
+    lines.push('');
+    lines.push(
+      `- **Applied ${r.applied} fixes** (backups at \`.test-genie-backups/\` next to each modified file).`,
+    );
+    lines.push(`- Skipped ${r.skipped} fix(es). Failed ${r.errors.length}.`);
+    lines.push(
+      `- Caps in effect: max ${r.caps.maxAutoFixPerRun} fixes / max ${r.caps.maxFilesPerRun} files per call.`,
+    );
+    lines.push(
+      `- Severity floor: only \`high\`+\`critical\` findings with an implemented strategy are auto-applied. No tests are re-run by this path (use \`run_iterative_fix_loop\` for that).`,
+    );
+    if (r.appliedFixes.length > 0) {
+      lines.push('');
+      lines.push(`Applied:`);
+      for (const af of r.appliedFixes) {
+        lines.push(`- \`${path.relative(args.projectPath, af.file)}\` — ${af.subType}`);
+      }
+    }
+    if (r.skippedFixes.length > 0) {
+      lines.push('');
+      lines.push(`Skipped:`);
+      for (const sf of r.skippedFixes) {
+        lines.push(`- \`${path.relative(args.projectPath, sf.file)}\` — ${sf.subType} (${sf.reason})`);
+      }
+    }
+    lines.push('');
+  }
 
   if (args.topFindings.length === 0) {
     lines.push(`No findings above threshold. Project looks clean from a vibe-check standpoint.`);
@@ -378,8 +445,15 @@ function buildMarkdownSummary(args: {
     if (f.recommendation) {
       lines.push(`- **Fix:** ${f.recommendation}`);
     }
-    if (f.autoFixable) {
-      lines.push(`- **Auto-fixable:** yes — pass \`autoFix: true\` to apply`);
+    // Only mention auto-fix when (a) the analyzer flagged it and (b) we
+    // have a real strategy that would be invoked at severity>=high. Never
+    // advertise capability we don't have.
+    if (
+      f.autoFixable &&
+      SEVERITY_ORDER[f.severity] >= SEVERITY_ORDER['high'] &&
+      f.subType === 'crypto'
+    ) {
+      lines.push(`- **Auto-fixable:** yes — pass \`autoFix: true\` to apply (backup + syntax-validate, no test re-run).`);
     }
     lines.push('');
   });
@@ -388,7 +462,10 @@ function buildMarkdownSummary(args: {
   lines.push('');
   lines.push(`1. Address the critical / high findings above.`);
   lines.push(`2. Re-run \`diagnose_project\` after fixing to confirm convergence.`);
-  lines.push(`3. Use \`run_iterative_fix_loop\` if you want test-driven verification of each fix.`);
+  lines.push(`3. Use \`run_iterative_fix_loop\` if you want test-driven verification of each fix (this path re-runs tests + rolls back on regression).`);
+  if (args.hasRealAutoFixCandidate && !args.autoFixResult) {
+    lines.push(`4. For the safe mechanical fixes (weak-hash, simple \`Math.random\` assignment), \`autoFix: true\` will apply them with backup + syntax validation. Other patterns are report-only.`);
+  }
 
   return lines.join('\n');
 }

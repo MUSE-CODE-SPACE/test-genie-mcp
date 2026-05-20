@@ -213,6 +213,15 @@ function detectCodePatterns(file: string, content: string): SecurityFinding[] {
         insecureRandomRe.lastIndex = 0;
         const mm = insecureRandomRe.exec(content);
         if (mm) {
+          // v3.1.1 honest auto-fix gate:
+          // Only flag autoFixable=true when the entire line ends with
+          // `Math.random()` (no chained arithmetic like `* 256` that would
+          // change semantics if naively replaced). The actual replacement
+          // strategy in diagnoseAutoFix.ts re-verifies this.
+          const lineStart = Math.max(0, content.lastIndexOf('\n', mm.index) + 1);
+          const lineEnd = content.indexOf('\n', mm.index);
+          const fullLine = content.substring(lineStart, lineEnd === -1 ? content.length : lineEnd);
+          const safeStandalone = /(?:^|[=,(\s])Math\.random\s*\(\s*\)\s*[);,]?\s*$/.test(fullLine);
           findings.push({
             id: uuidv4(),
             category: 'security',
@@ -226,7 +235,7 @@ function detectCodePatterns(file: string, content: string): SecurityFinding[] {
               '`Math.random()` is a fast PRNG, not a cryptographic one. The output is predictable enough that an attacker who sees a few values can guess the next ones — fatal for password-reset tokens or session IDs.',
             snippet: snippet(content, mm.index),
             recommendation: 'Use `crypto.randomBytes(n).toString("hex")` (Node) or `crypto.getRandomValues(buf)` (browser/Web Crypto).',
-            autoFixable: true,
+            autoFixable: safeStandalone,
             cwe: 'CWE-338',
           });
         }
@@ -236,11 +245,17 @@ function detectCodePatterns(file: string, content: string): SecurityFinding[] {
     // Weak crypto for hashing passwords/tokens.
     const weakHashRe = /createHash\s*\(\s*['"](md5|sha1)['"]/g;
     while ((m = weakHashRe.exec(content)) !== null) {
+      // v3.1.1: severity = high (was medium). When the surrounding file
+      // mentions password/token/session/secret, md5/sha1 is high-impact.
+      // We then meet the auto-fix severity floor (>= high) for the safe
+      // mechanical rewrite implemented in diagnoseAutoFix.ts.
+      const ctxRe = /(password|token|secret|nonce|session|reset|verify|otp|auth|sign|hmac)/i;
+      const sev: SecuritySeverity = ctxRe.test(content) ? 'high' : 'medium';
       findings.push({
         id: uuidv4(),
         category: 'security',
         subType: 'crypto',
-        severity: 'medium',
+        severity: sev,
         confidence: 80,
         file,
         line: lineOf(content, m.index),
@@ -358,7 +373,10 @@ function detectCodePatterns(file: string, content: string): SecurityFinding[] {
         description: 'The default schema in older `js-yaml` versions allowed arbitrary object instantiation, which has been used for RCE.',
         snippet: snippet(content, m.index),
         recommendation: 'Switch to `yaml.load(content, { schema: yaml.SAFE_SCHEMA })` or use a modern parser that\'s safe by default.',
-        autoFixable: true,
+        // v3.1.1: flipped to false — the call-site rewrite needs to know
+        // the bound variable name + may need to import SAFE_SCHEMA. We
+        // don't ship a strategy yet, so we report-only. Honest.
+        autoFixable: false,
         cwe: 'CWE-502',
       });
     }
@@ -398,7 +416,11 @@ function detectEnvHygiene(projectPath: string): SecurityFinding[] {
         description: '`.env` typically holds credentials. If it\'s not gitignored, the next commit will leak the secrets — irreversibly, into git history.',
         snippet: '(file: .env present, .gitignore missing entry)',
         recommendation: 'Add `.env` (and `.env.*` except `.env.example`) to `.gitignore`, then rotate any credentials that may already have been committed.',
-        autoFixable: true,
+        // v3.1.1: flipped to false — appending to .gitignore is mechanical
+        // but we don't ship a strategy for it yet, and rotating already-
+        // committed credentials is mandatory follow-up that can't be
+        // automated. Honest to leave as report-only.
+        autoFixable: false,
         cwe: 'CWE-538',
       });
     }

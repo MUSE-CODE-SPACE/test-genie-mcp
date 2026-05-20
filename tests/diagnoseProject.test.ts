@@ -68,10 +68,28 @@ describe('diagnoseProject — security-node fixture', () => {
     expect(back.summary).toBeDefined();
   });
 
-  it('autoFix flag is accepted (no-op pass-through for now)', async () => {
-    const r = await diagnoseProject({ projectPath: SEC, autoFix: true, output: 'summary' });
-    expect(r).toBeDefined();
-    expect(r.summary.total).toBeGreaterThan(0);
+  it('autoFix flag is accepted and produces an autoFixResult (real, not no-op since v3.1.1)', async () => {
+    // To avoid mutating the checked-in fixture, copy it to a tmp dir.
+    const fs = require('fs');
+    const os = require('os');
+    const fsp = require('fs/promises');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-sec-fx-'));
+    const origAllowed = process.env.TEST_GENIE_ALLOWED_ROOT;
+    try {
+      fs.cpSync(SEC, tmp, { recursive: true });
+      process.env.TEST_GENIE_ALLOWED_ROOT = tmp;
+      const r = await diagnoseProject({ projectPath: tmp, autoFix: true, output: 'summary' });
+      expect(r).toBeDefined();
+      expect(r.summary.total).toBeGreaterThan(0);
+      expect(r.autoFixResult).toBeDefined();
+      expect(typeof r.autoFixResult!.applied).toBe('number');
+      expect(Array.isArray(r.autoFixResult!.appliedFixes)).toBe(true);
+      expect(Array.isArray(r.autoFixResult!.skippedFixes)).toBe(true);
+    } finally {
+      await fsp.rm(tmp, { recursive: true, force: true });
+      if (origAllowed === undefined) delete process.env.TEST_GENIE_ALLOWED_ROOT;
+      else process.env.TEST_GENIE_ALLOWED_ROOT = origAllowed;
+    }
   });
 });
 

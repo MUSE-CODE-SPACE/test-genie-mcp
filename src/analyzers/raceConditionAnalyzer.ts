@@ -129,7 +129,12 @@ function detectJSRaces(file: string, content: string): RaceFinding[] {
         snippet: snippet(content, m.index),
         recommendation:
           'Create an `AbortController` at the top of the effect, pass `controller.signal` to fetch, and `return () => controller.abort()` in the cleanup.',
-        autoFixable: true,
+        // v3.1.1: flipped to false — wrapping an existing effect with
+        // AbortController is structural and can change behavior
+        // (cleanup-order, dep-array semantics). We don't have a safe
+        // mechanical rewrite, so we report-only and leave the fix to
+        // run_iterative_fix_loop or the user. See SAFETY.md.
+        autoFixable: false,
         cwe: 'CWE-362',
       });
     }
@@ -153,7 +158,11 @@ function detectJSRaces(file: string, content: string): RaceFinding[] {
       snippet: snippet(content, m.index),
       recommendation:
         'Replace with `for (const x of arr) { await ... }` for sequential, or `await Promise.all(arr.map(async (x) => ...))` for parallel.',
-      autoFixable: true,
+      // v3.1.1: flipped to false — the mechanical rewrite to
+      // `Promise.all(arr.map(...))` changes serial->parallel and only
+      // preserves behavior when the loop body has no ordering deps. We
+      // cannot prove that statically, so we report-only.
+      autoFixable: false,
       cwe: 'CWE-362',
     });
   }

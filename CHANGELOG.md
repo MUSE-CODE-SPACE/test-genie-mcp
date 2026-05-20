@@ -5,6 +5,64 @@ All notable changes to `test-genie-mcp` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] — 2026-05-21
+
+### Why this release exists
+
+v3.1.0 shipped `autoFix: true` as a parameter and the README claimed
+"pass `autoFix: true` to apply" — but the parameter was a no-op
+pass-through. This is the honest follow-up.
+
+### Fixed
+
+- `diagnose_project` now **really** auto-applies fixes when
+  `autoFix: true` is passed. v3.1.0 accepted the flag but did nothing.
+- README + Markdown summary previously advertised auto-fix capability
+  the code didn't have. The pattern tables, comparison table, and use
+  cases now reflect what actually ships.
+
+### Added
+
+- `src/tools/automation/diagnoseAutoFix.ts` — the real auto-fix
+  pipeline: severity floor (≥ high) → path safety → excluded segments
+  → hard caps (`MAX_AUTOFIX_PER_RUN=5`, `MAX_FILES_PER_RUN=3`) →
+  per-fix backup → dry-run → real apply with syntax validation +
+  rollback. v3.1.1 ships strategies for **weak-hash** (md5/sha1 →
+  sha256) and **standalone `Math.random()` assignment** (→
+  `crypto.randomInt`).
+- `tests/diagnoseAutoFix.test.ts` — 5 new tests (real weak-hash apply
+  + backup created, `autoFix:false` no-op, cap enforcement, allowed-
+  root rejection, `node_modules/` exclusion). Total tests 110 → 115.
+- `SAFETY.md` — every safety guard cited to its file + line in code
+  and the test that verifies it. No aspirational claims.
+
+### Changed
+
+- Analyzer `autoFixable` flags audited for honesty:
+  - `raceConditionAnalyzer`: `react-useeffect-no-abort` (line 137) and
+    `foreach-await` (line 165) → `false`. Structural rewrites we can't
+    prove safe.
+  - `securityAnalyzer`: `.env`-not-gitignored (line 423), `yaml.load`
+    (line 379) → `false`. No strategy shipped; honest report-only.
+  - `securityAnalyzer`: weak-hash severity now `high` when file
+    mentions password/token/auth (line 256-258); otherwise `medium`
+    (below auto-fix floor).
+  - `securityAnalyzer`: `Math.random()` `autoFixable` is now a
+    function of line shape (line 224, 238) — only `true` for
+    standalone end-of-statement matches.
+- `SERVER_VERSION` 3.1.0 → 3.1.1.
+- README: removed "Claude offers to apply via run_iterative_fix_loop"
+  fake claim; clarified scope of `autoFix: true` vs
+  `run_iterative_fix_loop`; auto-rollback row split into syntax
+  failure (all paths) and test regression (`run_iterative_fix_loop`
+  only).
+
+### Backwards compatibility
+
+- All existing 110 tests still pass without modification. The
+  `autoFix: true` parameter is the same shape — it just now actually
+  does something.
+
 ## [3.1.0] — 2026-05-21
 
 ### Highlights — what's now possible
