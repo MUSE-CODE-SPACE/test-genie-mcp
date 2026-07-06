@@ -42,7 +42,7 @@
     "glob": "^10.3.0",
     "ts-morph": "^21.0.0",
     "typescript": "^5.3.0",
-    "uuid": "^9.0.0",
+    "uuid": "^11.1.1",
     "zod": "^3.23.0"
   },
   "optionalDependencies": {
@@ -53,7 +53,6 @@
     "@types/diff": "^5.0.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.10.0",
-    "@types/uuid": "^9.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.56.0",
@@ -65,7 +64,6 @@
   },
   "files": [
     "dist",
-    "templates",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",
@@ -74,5 +72,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/MUSE-CODE-SPACE/test-genie-mcp.git"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^9.0.9"
+    }
   }
 }
